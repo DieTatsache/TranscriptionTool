@@ -1,61 +1,38 @@
 # Sonora — TranscriptionTool
 
-**"From what was said."**  
-Sonora wandelt Audio-Aufnahmen von Trainings- und Coaching-Sessions automatisch in Zusammenfassungen, interaktive Quizze, Recap-Videos und Transkripte um — und macht sie für Teilnehmer ohne Account zugänglich.
+**"From what was said."**
+Sonora turns audio recordings of training and coaching sessions into summaries, interactive quizzes, recap videos, and transcripts — shareable with participants via link, no account required.
 
 ---
 
-## Projektstruktur
+## Project Structure
 
 ```
 TranscriptionTool/
-├── Frontend/      # React + Vite — Trainer-App & Teilnehmer-Ansicht
+├── Frontend/      # React + Vite — trainer app & participant view
 └── README.md
 ```
 
-Das Backend ist noch nicht implementiert. Alle Daten sind aktuell Mocks im Frontend.
+The backend is not yet implemented. All data is currently mocked in the frontend.
 
 ---
 
-## Produkt-Übersicht
+## Tech Stack
 
-Sonora richtet sich an Trainer, Coaches und Dozenten. Der Ablauf:
-
-1. **Trainer nimmt eine Session auf** — direkt im Browser via Mikrofon
-2. **Sonora analysiert die Aufnahme** — Transkription via Web Speech API, anschließend client-seitige NLP-Analyse
-3. **Drei Deliverables entstehen automatisch:**
-   - Script mit Key Takeaways (inkl. Zeitstempel)
-   - Interaktives Multiple-Choice-Quiz, verankert in konkreten Session-Momenten
-   - Vollständiges Transkript mit Sprecher-Trennung
-   - *(Beta)* 90-Sekunden-Recap-Video
-4. **Trainer teilt Inhalte mit Teilnehmern** — per Link, ohne dass Teilnehmer einen Account brauchen
-
----
-
-## Zielgruppen
-
-- **Trainer & Coaches** — nutzen die Trainer-App (Login erforderlich)
-- **Teilnehmer** — rufen geteilte Inhalte über einen Share-Link auf (kein Account nötig)
-
----
-
-## Aktueller Stand
-
-| Bereich | Status |
+| Layer | Technology |
 |---|---|
-| Frontend (Trainer-App) | ✅ Funktionsfähig mit Mock-Daten |
-| Frontend (Teilnehmer-Ansicht) | ✅ Funktionsfähig mit Mock-Daten |
-| Landing Page | ✅ Fertig |
-| Authentifizierung | 🟡 Mock (hardcoded Demo-Account) |
-| Audio-Transkription | ✅ Browser-nativ (Web Speech API) |
-| NLP-Analyse | 🟡 Client-seitig (Heuristiken), kein LLM |
-| Backend / API | ❌ Noch nicht implementiert |
-| Datenbank / Persistenz | ❌ Noch nicht implementiert |
-| Video-Generierung | 🟡 Mock-Player, keine echte Generierung |
+| UI framework | React 19 |
+| Build tool | Vite 8 |
+| Styling | Custom CSS with CSS variables (no framework) |
+| Routing | State-based + URL parameters (no router library) |
+| State management | React `useState` (no external library) |
+| Audio transcription | Web Speech API (browser-native, Chrome recommended) |
+| NLP analysis | Client-side heuristics (`Frontend/src/analyze.js`) |
+| Linting | Oxlint |
 
 ---
 
-## Schnellstart
+## Quick Start
 
 ```bash
 cd Frontend
@@ -63,12 +40,12 @@ npm install
 npm run dev
 ```
 
-Dev-Server läuft auf `http://localhost:5173`.  
-Demo-Login: `marie.trainer@example.com` / `demo1234`
+Dev server runs at `http://localhost:5173`.
+Demo login: `marie.trainer@example.com` / `demo1234`
 
-Teilnehmer-Ansicht testen:
+Test the participant view:
 ```
 http://localhost:5173/?session=s1&tabs=script,quiz
 ```
 
-Weitere Details → [`Frontend/README.md`](./Frontend/README.md)
+Full details → [`Frontend/README.md`](./Frontend/README.md)
