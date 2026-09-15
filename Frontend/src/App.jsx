@@ -7,23 +7,45 @@ import Landing from "./components/Landing.jsx";
 import Recorder from "./components/Recorder.jsx";
 import Processing from "./components/Processing.jsx";
 import Results from "./components/Results.jsx";
+import Login from "./components/Login.jsx";
+import Profile from "./components/Profile.jsx";
+import ParticipantView from "./components/ParticipantView.jsx";
+
+// Participant share link: /?session=s1&tabs=script,quiz
+const _urlParams = new URLSearchParams(window.location.search);
+const _sharedSession = _urlParams.get("session");
+const _sharedTabs = _urlParams.get("tabs");
 
 export default function App() {
-  const [view, setView] = useState("landing");
-
-  if (view === "landing") {
-    return <Landing onEnter={() => setView("app")} />;
+  // If a share link — bypass auth and show the public participant view
+  if (_sharedSession) {
+    return <ParticipantView sessionId={_sharedSession} tabs={_sharedTabs} />;
   }
-  return <AppShell onHome={() => setView("landing")} />;
+  const [view, setView] = useState("landing"); // landing | login | app | profile
+  const [user, setUser] = useState(null);
+
+  const handleLogin = (userData) => {
+    setUser(userData);
+    setView("app");
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setView("login");
+  };
+
+  if (view === "login") return <Login onLogin={handleLogin} />;
+  if (view === "landing") return <Landing onEnter={() => setView("login")} />;
+  if (view === "profile") return <Profile user={user} onBack={() => setView("app")} onLogout={handleLogout} />;
+  return <AppShell user={user} onHome={() => setView("landing")} onProfile={() => setView("profile")} onLogout={handleLogout} />;
 }
 
-function AppShell({ onHome }) {
+function AppShell({ user, onHome, onProfile, onLogout }) {
   const [stage, setStage] = useState("results");
   const [sessions, setSessions] = useState(DEMO_SESSIONS);
   const [activeSession, setActiveSession] = useState(DEMO_SESSIONS[0].id);
-  // Extra content for user-recorded sessions: { [id]: content }
   const [liveContent, setLiveContent] = useState({});
-  const [pendingAnalysis, setPendingAnalysis] = useState(null); // { seconds, entries }
+  const [pendingAnalysis, setPendingAnalysis] = useState(null);
 
   const stopRecording = (seconds, entries) => {
     setPendingAnalysis({ seconds, entries });
@@ -83,6 +105,8 @@ function AppShell({ onHome }) {
           stage={stage}
           session={sessions.find((s) => s.id === activeSession)}
           onNew={() => setStage("recording")}
+          user={user}
+          onProfile={onProfile}
         />
 
         <div className="stage">
@@ -163,7 +187,7 @@ function Sidebar({ sessions, active, onSelect, onNew, onDelete, onHome, usedCoun
   );
 }
 
-function TopBar({ stage, session, onNew }) {
+function TopBar({ stage, session, onNew, user, onProfile }) {
   const recordingLabel = "Recording session";
   const processingLabel = "Analyzing what was said";
   const title = stage === "recording" ? recordingLabel
@@ -183,7 +207,9 @@ function TopBar({ stage, session, onNew }) {
         <button className="btn btn-ghost" onClick={onNew}>
           <Icon name="plus" size={16} /> New
         </button>
-        <div className="avatar">MT</div>
+        <button className="avatar" onClick={onProfile} title="Profil öffnen">
+          {user?.initials ?? "?"}
+        </button>
       </div>
     </header>
   );

@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Icon from "../Icon.jsx";
 import {
-  DEMO_SCRIPT,
-  DEMO_QUIZ,
-  DEMO_TRANSCRIPT,
   CHAT_ANSWERS,
   CHAT_FALLBACK,
   CHAT_SUGGESTIONS,
@@ -26,6 +23,7 @@ function getSessionContent(sessionId, liveContent) {
 
 export default function Results({ sessionId, liveContent }) {
   const [tab, setTab] = useState("script");
+  const [shareOpen, setShareOpen] = useState(false);
 
   // Reset to script tab when switching sessions.
   useEffect(() => { setTab("script"); }, [sessionId]);
@@ -50,17 +48,116 @@ export default function Results({ sessionId, liveContent }) {
       </div>
 
       <div className="tab-panel">
-        {tab === "script" && <ScriptView script={content.script} />}
+        {tab === "script" && (
+          <ScriptView
+            script={content.script}
+            onShare={() => setShareOpen(true)}
+          />
+        )}
         {tab === "quiz" && <QuizView quiz={content.quiz} key={sessionId} />}
         {tab === "video" && !isLive && <VideoView />}
         {tab === "chat" && <ChatView key={sessionId} transcript={content.transcript} />}
         {tab === "transcript" && <TranscriptView transcript={content.transcript} />}
       </div>
+
+      {shareOpen && (
+        <ShareModal
+          sessionId={sessionId}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
-function ScriptView({ script }) {
+// ---- Share Modal ----
+
+const SHARE_TAB_OPTIONS = [
+  { id: "script", label: "Script & Zusammenfassung", icon: "script" },
+  { id: "quiz", label: "Quiz", icon: "quiz" },
+  { id: "video", label: "Video (90-Sek.-Recap)", icon: "video" },
+  { id: "transcript", label: "Transkript", icon: "transcript" },
+];
+
+function ShareModal({ sessionId, onClose }) {
+  const [selected, setSelected] = useState(["script", "quiz", "video", "transcript"]);
+  const [copied, setCopied] = useState(false);
+
+  const toggle = (id) =>
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+
+  const shareUrl =
+    window.location.origin +
+    "/?session=" +
+    sessionId +
+    "&tabs=" +
+    SHARE_TAB_OPTIONS.filter((t) => selected.includes(t.id))
+      .map((t) => t.id)
+      .join(",");
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>Mit Teilnehmern teilen</h2>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+        <p className="modal-sub">
+          Wähle aus, welche Inhalte die Teilnehmer sehen dürfen. Sie brauchen
+          keinen Account — nur den Link.
+        </p>
+
+        <div className="share-tab-list">
+          {SHARE_TAB_OPTIONS.map((opt) => (
+            <label key={opt.id} className={"share-tab-row" + (selected.includes(opt.id) ? " checked" : "")}>
+              <input
+                type="checkbox"
+                checked={selected.includes(opt.id)}
+                onChange={() => toggle(opt.id)}
+              />
+              <Icon name={opt.icon} size={16} />
+              <span>{opt.label}</span>
+              <span className={"share-check" + (selected.includes(opt.id) ? " on" : "")}>
+                <Icon name="check" size={13} />
+              </span>
+            </label>
+          ))}
+        </div>
+
+        <div className="share-url-row">
+          <div className="share-url-box">{shareUrl}</div>
+          <button
+            className={"btn btn-primary btn-sm" + (copied ? " copied" : "")}
+            onClick={copyLink}
+            disabled={selected.length === 0}
+          >
+            <Icon name={copied ? "check" : "copy"} size={15} />
+            {copied ? "Kopiert!" : "Link kopieren"}
+          </button>
+        </div>
+
+        {selected.length === 0 && (
+          <p className="share-warn">Bitte wähle mindestens einen Inhalt aus.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---- Exported sub-views (reused in ParticipantView) ----
+
+export function ScriptView({ script, onShare }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -82,9 +179,11 @@ function ScriptView({ script }) {
           <button className="btn btn-ghost btn-sm" onClick={handleCopy}>
             <Icon name={copied ? "check" : "copy"} size={15} /> {copied ? "Copied!" : "Copy"}
           </button>
-          <button className="btn btn-secondary btn-sm">
-            <Icon name="arrow" size={15} /> Share with participants
-          </button>
+          {onShare && (
+            <button className="btn btn-secondary btn-sm" onClick={onShare}>
+              <Icon name="arrow" size={15} /> Share with participants
+            </button>
+          )}
         </div>
       </div>
 
@@ -114,7 +213,7 @@ function ScriptView({ script }) {
   );
 }
 
-function QuizView({ quiz }) {
+export function QuizView({ quiz }) {
   const [answers, setAnswers] = useState({});
   const [checked, setChecked] = useState(false);
 
@@ -206,7 +305,7 @@ function QuizView({ quiz }) {
   );
 }
 
-function VideoView() {
+export function VideoView() {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(34);
 
@@ -257,7 +356,7 @@ function VideoView() {
           trainer's own words.
         </p>
         <ul className="video-scenes">
-          {["Opening reframe", "The three-step sequence", '“Let silence do the work”', "Homework & close"].map(
+          {["Opening reframe", "The three-step sequence", '"Let silence do the work"', "Homework & close"].map(
             (s, i) => (
               <li key={i}>
                 <span className="scene-num">{i + 1}</span>
@@ -278,6 +377,47 @@ function VideoView() {
     </div>
   );
 }
+
+export function TranscriptView({ transcript }) {
+  const [exported, setExported] = useState(false);
+
+  const handleExport = () => {
+    const text = transcript.map((l) => `[${l.t}] ${l.speaker}: ${l.text}`).join("\n");
+    navigator.clipboard.writeText(text).then(() => {
+      setExported(true);
+      setTimeout(() => setExported(false), 2000);
+    });
+  };
+
+  return (
+    <div className="transcript-view">
+      <div className="quiz-head">
+        <div>
+          <h2>Full transcript</h2>
+          <p className="script-summary">
+            The source of truth. Every script point and quiz question links back to a line here.
+          </p>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={handleExport}>
+          <Icon name={exported ? "check" : "copy"} size={15} /> {exported ? "Copied!" : "Export"}
+        </button>
+      </div>
+      <div className="transcript-lines">
+        {transcript.map((l, i) => (
+          <div className="t-line" key={i}>
+            <span className="feed-time">{l.t}</span>
+            <div>
+              <span className={"feed-speaker " + l.speaker.toLowerCase()}>{l.speaker}</span>
+              <p>{l.text}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---- Chat (trainer-only, not exported for participants) ----
 
 function ChatView({ transcript }) {
   const isLive = transcript && !transcript.some((l) => l.speaker === "Trainer");
@@ -387,13 +527,10 @@ function ChatView({ transcript }) {
   );
 }
 
-// Answer a question: for live sessions, search the real transcript.
-// For demo sessions, use the canned keyword-matching.
 function answerQuestion(q, transcript, isLive) {
   if (isLive && transcript?.length) {
     const lower = q.toLowerCase();
     const words = lower.split(/\s+/).filter((w) => w.length > 3);
-    // Score each transcript line by how many query words it contains
     const scored = transcript.map((line) => {
       const lineText = line.text.toLowerCase();
       const score = words.filter((w) => lineText.includes(w)).length;
@@ -417,7 +554,6 @@ function answerQuestion(q, transcript, isLive) {
     };
   }
 
-  // Demo session: keyword matching
   const lower = q.toLowerCase();
   const hit = CHAT_ANSWERS.find((a) => a.match.some((k) => lower.includes(k)));
   return hit ?? CHAT_FALLBACK;
@@ -443,43 +579,4 @@ function renderBold(text) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
   return escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-}
-
-function TranscriptView({ transcript }) {
-  const [exported, setExported] = useState(false);
-
-  const handleExport = () => {
-    const text = transcript.map((l) => `[${l.t}] ${l.speaker}: ${l.text}`).join("\n");
-    navigator.clipboard.writeText(text).then(() => {
-      setExported(true);
-      setTimeout(() => setExported(false), 2000);
-    });
-  };
-
-  return (
-    <div className="transcript-view">
-      <div className="quiz-head">
-        <div>
-          <h2>Full transcript</h2>
-          <p className="script-summary">
-            The source of truth. Every script point and quiz question links back to a line here.
-          </p>
-        </div>
-        <button className="btn btn-ghost btn-sm" onClick={handleExport}>
-          <Icon name={exported ? "check" : "copy"} size={15} /> {exported ? "Copied!" : "Export"}
-        </button>
-      </div>
-      <div className="transcript-lines">
-        {transcript.map((l, i) => (
-          <div className="t-line" key={i}>
-            <span className="feed-time">{l.t}</span>
-            <div>
-              <span className={"feed-speaker " + l.speaker.toLowerCase()}>{l.speaker}</span>
-              <p>{l.text}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
