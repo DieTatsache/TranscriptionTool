@@ -1,0 +1,173 @@
+# Sonora production stack. Configure via `.env` next to this file (see .env.example).
+#
+#   docker compose up -d --build                    # CPU only
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build   # NVIDIA GPU
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build   # + automatic HTTPS
+#
+# Network layout: only `web` (nginx) is published. The database, Valkey and the API are
+# unreachable from outside; `internal` has no internet access at all. Containers that
+# must download models (ollama, worker) additionally join `egress`.
+
+name: sonora
+
+x-backend-env: &backend-env
+  SONORA_ENVIRONMENT: production
+  SONORA_DATABASE_URL: postgresql+asyncpg://sonora:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/sonora
+  SONORA_ALLOWED_HOSTS: ${PUBLIC_HOST:?Set PUBLIC_HOST in .env},localhost
+  SONORA_ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN in .env}
+  SONORA_COOKIE_SECURE: "true"
+  SONORA_HSTS_ENABLED: ${HSTS_ENABLED:-false}
+  SONORA_REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
+  SONORA_DEFAULT_PLAN: ${DEFAULT_PLAN:-trainer}
+  SONORA_RATE_LIMIT_STORAGE_URL: async+valkey://valkey:6379/0
+  SONORA_STORAGE_DIR: /data
+  SONORA_MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
+  SONORA_MAX_AUDIO_MINUTES: ${MAX_AUDIO_MINUTES:-180}
+  SONORA_WORKER_EMBEDDED: "false"
+  SONORA_LOG_JSON: "true"
+  SONORA_LLM_BASE_URL: http://ollama:11434
+  SONORA_LLM_MODEL: ${LLM_MODEL:-gemma3:12b}
+  SONORA_LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-32768}
+  SONORA_LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-900}
+  SONORA_TRANSCRIPTION_BACKEND: faster-whisper
+  SONORA_WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
+  SONORA_WHISPER_DEVICE: ${WHISPER_DEVICE:-auto}
+  SONORA_WHISPER_MODEL_DIR: /models
+
+x-hardening: &hardening
+  read_only: true
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: sonora
+      POSTGRES_USER: sonora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonora -d sonora"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    networks: [internal]
+
+  valkey:
+    # Rate-limit counters shared by all API processes (ephemeral: no persistence).
+    image: valkey/valkey:8-alpine
+    command: ["valkey-server", "--save", "", "--appendonly", "no", "--protected-mode", "no"]
+    user: "65534:65534"  # nothing is written to disk, so no root-owned data dir is needed
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    <<: *hardening
+    networks: [internal]
+
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    environment:
+      OLLAMA_CONTEXT_LENGTH: ${LLM_CONTEXT_TOKENS:-32768}
+      OLLAMA_KEEP_ALIVE: 24h
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-2}
+    volumes: [ollama-models:/root/.ollama]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    networks: [internal, egress]
+
+  ollama-pull:
+    # One-shot: downloads the configured model (no-op once it is present).
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    command: ["pull", "${LLM_MODEL:-gemma3:12b}"]
+    depends_on:
+      ollama: { condition: service_healthy }
+    restart: "no"
+    networks: [internal, egress]
+
+  migrate:
+    build: { context: ./Backend, target: api }
+    image: sonora-api:latest
+    command: ["alembic", "upgrade", "head"]
+    environment: *backend-env
+    depends_on:
+      db: { condition: service_healthy }
+    <<: *hardening
+    restart: "no"
+    networks: [internal]
+
+  api:
+    build: { context: ./Backend, target: api }
+    image: sonora-api:latest
+    environment:
+      <<: *backend-env
+      WEB_CONCURRENCY: ${API_WORKERS:-2}
+      # Only nginx can reach the API, so its X-Forwarded-For header is trusted.
+      FORWARDED_ALLOW_IPS: "*"
+    volumes: [audio-data:/data]
+    tmpfs: [/tmp]
+    depends_on:
+      db: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    <<: *hardening
+    networks: [internal, edge]
+
+  worker:
+    build:
+      context: ./Backend
+      target: worker
+      args:
+        WITH_CUDA: ${WITH_CUDA:-false}
+    image: sonora-worker:latest
+    environment: *backend-env
+    volumes:
+      - audio-data:/data
+      - whisper-models:/models
+    tmpfs: [/tmp]
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+      ollama: { condition: service_healthy }
+    <<: *hardening
+    networks: [internal, egress]
+
+  web:
+    build: ./Frontend
+    image: sonora-web:latest
+    environment:
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
+      TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1/32}
+    ports: ["${HTTP_PORT:-8080}:8080"]
+    tmpfs: [/tmp, /etc/nginx/conf.d]
+    depends_on:
+      api: { condition: service_healthy }
+    <<: *hardening
+    networks: [edge]
+
+networks:
+  internal:
+    internal: true
+  edge: {}
+  egress: {}
+
+volumes:
+  postgres-data:
+  audio-data:
+  ollama-models:
+  whisper-models:

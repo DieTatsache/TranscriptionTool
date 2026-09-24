@@ -1,133 +1,278 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 import Icon from "./Icon.jsx";
-import { DEMO_SESSIONS } from "./data.js";
-import { analyzeTranscript } from "./analyze.js";
+import { api, onSessionExpired, setCsrfToken } from "./api.js";
+import { formatDate, formatDuration, initials, isProcessing } from "./format.js";
+import ConfirmDialog from "./components/ConfirmDialog.jsx";
 import Landing from "./components/Landing.jsx";
-import Recorder from "./components/Recorder.jsx";
-import Processing from "./components/Processing.jsx";
-import Results from "./components/Results.jsx";
 import Login from "./components/Login.jsx";
-import Profile from "./components/Profile.jsx";
 import ParticipantView from "./components/ParticipantView.jsx";
+import Processing from "./components/Processing.jsx";
+import Profile from "./components/Profile.jsx";
+import Recorder from "./components/Recorder.jsx";
+import Results from "./components/Results.jsx";
 
-// Participant share link: /?session=s1&tabs=script,quiz
-const _urlParams = new URLSearchParams(window.location.search);
-const _sharedSession = _urlParams.get("session");
-const _sharedTabs = _urlParams.get("tabs");
+// Participant share links: /share/<token>
+const SHARE_PATH = /^\/share\/([A-Za-z0-9_-]{32,64})\/?$/;
+const shareToken = window.location.pathname.match(SHARE_PATH)?.[1] ?? null;
+const POLL_INTERVAL_MS = 3000;
 
 export default function App() {
-  // If a share link — bypass auth and show the public participant view
-  if (_sharedSession) {
-    return <ParticipantView sessionId={_sharedSession} tabs={_sharedTabs} />;
-  }
-  const [view, setView] = useState("landing"); // landing | login | app | profile
-  const [user, setUser] = useState(null);
+  if (shareToken) return <ParticipantView token={shareToken} />;
+  return <TrainerApp />;
+}
 
-  const handleLogin = (userData) => {
-    setUser(userData);
+function TrainerApp() {
+  const [view, setView] = useState("loading"); // loading | landing | login | app | profile
+  const [loginMode, setLoginMode] = useState("login");
+  const [user, setUser] = useState(null);
+  const [meta, setMeta] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  useEffect(() => {
+    onSessionExpired(() => {
+      setUser(null);
+      setCsrfToken(null);
+      setNotice("Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.");
+      setView("login");
+    });
+    api.meta().then(setMeta).catch(() => setMeta(null));
+    api
+      .me()
+      .then((me) => {
+        setUser(me);
+        setView("app");
+      })
+      .catch(() => setView("landing"));
+  }, []);
+
+  const enter = (mode = "login") => {
+    if (user) {
+      setView("app");
+      return;
+    }
+    setLoginMode(mode);
+    setNotice(null);
+    setView("login");
+  };
+
+  const handleLogin = (me) => {
+    setUser(me);
+    setNotice(null);
     setView("app");
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await api.logout().catch(() => {});
     setUser(null);
     setView("login");
   };
 
-  if (view === "login") return <Login onLogin={handleLogin} />;
-  if (view === "landing") return <Landing onEnter={() => setView("login")} />;
-  if (view === "profile") return <Profile user={user} onBack={() => setView("app")} onLogout={handleLogout} />;
-  return <AppShell user={user} onHome={() => setView("landing")} onProfile={() => setView("profile")} onLogout={handleLogout} />;
+  const handleAccountDeleted = () => {
+    setUser(null);
+    setView("landing");
+  };
+
+  if (view === "loading") {
+    return (
+      <div className="boot-screen" aria-busy="true">
+        <span className="proc-spinner" />
+      </div>
+    );
+  }
+  if (view === "landing") return <Landing onEnter={enter} />;
+  if (view === "login" || !user) {
+    return (
+      <Login mode={loginMode} onModeChange={setLoginMode} meta={meta} notice={notice} onLogin={handleLogin} />
+    );
+  }
+  if (view === "profile") {
+    return (
+      <Profile
+        user={user}
+        meta={meta}
+        onUserChange={setUser}
+        onBack={() => setView("app")}
+        onLogout={handleLogout}
+        onDeleted={handleAccountDeleted}
+      />
+    );
+  }
+  return (
+    <AppShell user={user} meta={meta} onHome={() => setView("landing")} onProfile={() => setView("profile")} />
+  );
 }
 
-function AppShell({ user, onHome, onProfile, onLogout }) {
-  const [stage, setStage] = useState("results");
-  const [sessions, setSessions] = useState(DEMO_SESSIONS);
-  const [activeSession, setActiveSession] = useState(DEMO_SESSIONS[0].id);
-  const [liveContent, setLiveContent] = useState({});
-  const [pendingAnalysis, setPendingAnalysis] = useState(null);
+function AppShell({ user, meta, onHome, onProfile }) {
+  const [sessions, setSessions] = useState(null); // null while loading
+  const [activeId, setActiveId] = useState(null);
+  const [recording, setRecording] = useState(false);
+  const [usage, setUsage] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [error, setError] = useState(null);
 
-  const stopRecording = (seconds, entries) => {
-    setPendingAnalysis({ seconds, entries });
-    setStage("processing");
-  };
+  const refreshSessions = useCallback(async () => {
+    const list = await api.listSessions();
+    setSessions(list);
+    return list;
+  }, []);
 
-  const finishProcessing = () => {
-    const { seconds, entries } = pendingAnalysis ?? { seconds: 0, entries: [] };
-    const analyzed = analyzeTranscript(entries, seconds);
-    const id = "session-" + Date.now();
+  const refreshUsage = useCallback(() => {
+    api.usage().then(setUsage).catch(() => {});
+  }, []);
 
-    const meta = analyzed?.sessionMeta ?? {
-      title: "New Session — " + new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      duration: seconds > 0 ? formatDuration(seconds) : "< 1s",
-      quizzes: 0,
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listSessions()
+      .then((list) => {
+        if (cancelled) return;
+        setSessions(list);
+        setActiveId((current) => current ?? list[0]?.id ?? null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setSessions([]);
+        setError(err.message);
+      });
+    api
+      .usage()
+      .then((value) => !cancelled && setUsage(value))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
     };
+  }, []);
 
-    setSessions((prev) => [{ id, ...meta }, ...prev]);
+  // Poll only while something is being processed.
+  const anyProcessing = sessions?.some(isProcessing) ?? false;
+  useEffect(() => {
+    if (!anyProcessing) return undefined;
+    const timer = setInterval(() => refreshSessions().catch(() => {}), POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [anyProcessing, refreshSessions]);
 
-    if (analyzed?.content) {
-      setLiveContent((prev) => ({ ...prev, [id]: analyzed.content }));
+  const active = sessions?.find((s) => s.id === activeId) ?? null;
+
+  const select = (id) => {
+    setActiveId(id);
+    setRecording(false);
+  };
+
+  const handleUploaded = (session) => {
+    setSessions((prev) => [session, ...(prev ?? [])]);
+    setActiveId(session.id);
+    setRecording(false);
+    refreshUsage();
+  };
+
+  const handleRetry = async (session) => {
+    setError(null);
+    try {
+      const updated = await api.retrySession(session.id);
+      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    } catch (err) {
+      setError(err.message);
     }
-
-    setActiveSession(id);
-    setPendingAnalysis(null);
-    setStage("results");
   };
 
-  const deleteSession = (id) => {
-    setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      if (activeSession === id && next.length > 0) {
-        setActiveSession(next[0].id);
-      }
-      return next;
-    });
-    setLiveContent((prev) => { const n = { ...prev }; delete n[id]; return n; });
+  const confirmDelete = async () => {
+    const target = pendingDelete;
+    setPendingDelete(null);
+    try {
+      await api.deleteSession(target.id);
+      const next = sessions.filter((s) => s.id !== target.id);
+      setSessions(next);
+      if (activeId === target.id) setActiveId(next[0]?.id ?? null);
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
-  const reset = () => setStage("results");
+  let content;
+  if (recording) {
+    content = (
+      <Recorder meta={meta} usage={usage} onUploaded={handleUploaded} onCancel={() => setRecording(false)} />
+    );
+  } else if (sessions === null) {
+    content = (
+      <div className="stage-loading">
+        <span className="proc-spinner" />
+      </div>
+    );
+  } else if (!active) {
+    content = <EmptyState onNew={() => setRecording(true)} />;
+  } else if (active.status === "ready") {
+    content = <Results key={active.id} session={active} />;
+  } else {
+    content = (
+      <Processing session={active} onRetry={() => handleRetry(active)} onDelete={() => setPendingDelete(active)} />
+    );
+  }
 
   return (
     <div className="app">
       <Sidebar
         sessions={sessions}
-        active={activeSession}
-        onSelect={(id) => { setActiveSession(id); setStage("results"); }}
-        onNew={() => setStage("recording")}
-        onDelete={deleteSession}
+        active={recording ? null : activeId}
+        onSelect={select}
+        onNew={() => setRecording(true)}
+        onDelete={setPendingDelete}
         onHome={onHome}
-        usedCount={sessions.length}
+        usage={usage}
       />
 
       <main className="main">
-        <TopBar
-          stage={stage}
-          session={sessions.find((s) => s.id === activeSession)}
-          onNew={() => setStage("recording")}
-          user={user}
-          onProfile={onProfile}
-        />
-
+        <TopBar recording={recording} session={active} onNew={() => setRecording(true)} user={user} onProfile={onProfile} />
         <div className="stage">
-          {stage === "recording" && <Recorder onStop={stopRecording} onCancel={reset} />}
-          {stage === "processing" && <Processing onDone={finishProcessing} hasRealContent={!!pendingAnalysis?.entries?.length} />}
-          {stage === "results" && <Results sessionId={activeSession} liveContent={liveContent} />}
+          {error && (
+            <div className="banner error" role="alert">
+              <Icon name="alert" size={16} />
+              <span>{error}</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => setError(null)} aria-label="Dismiss">
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+          )}
+          {content}
         </div>
       </main>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Delete session?"
+          confirmLabel="Delete"
+          danger
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+        >
+          <strong>{pendingDelete.title}</strong> will be deleted permanently, including its transcript,
+          recap, quiz, chat history and every share link.
+        </ConfirmDialog>
+      )}
     </div>
   );
 }
 
-function formatDuration(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  if (m === 0) return `${s}s`;
-  if (s === 0) return `${m} min`;
-  return `${m}m ${s}s`;
+function EmptyState({ onNew }) {
+  return (
+    <div className="empty-state fade-up">
+      <div className="proc-ring">
+        <Icon name="mic" size={26} />
+      </div>
+      <h2>Record your first session</h2>
+      <p>
+        Record a lecture in the room or upload an existing recording. Sonora turns what was said into a recap,
+        a quiz and a chat you can ask about the session.
+      </p>
+      <button className="btn btn-primary" onClick={onNew}>
+        <Icon name="mic" size={16} /> New session
+      </button>
+    </div>
+  );
 }
 
-function Sidebar({ sessions, active, onSelect, onNew, onDelete, onHome, usedCount }) {
+function Sidebar({ sessions, active, onSelect, onNew, onDelete, onHome, usage }) {
   return (
     <aside className="sidebar">
       <button className="brand brand-btn" onClick={onHome} title="Back to home">
@@ -146,24 +291,23 @@ function Sidebar({ sessions, active, onSelect, onNew, onDelete, onHome, usedCoun
 
       <div className="side-label">Your sessions</div>
       <nav className="session-list">
-        {sessions.map((s) => (
-          <div
-            key={s.id}
-            className={"session-item" + (s.id === active ? " active" : "")}
-          >
-            <button
-              className="session-item-btn"
-              onClick={() => onSelect(s.id)}
-            >
+        {sessions?.length === 0 && <div className="session-empty">No sessions yet.</div>}
+        {sessions?.map((s) => (
+          <div key={s.id} className={"session-item" + (s.id === active ? " active" : "")}>
+            <button className="session-item-btn" onClick={() => onSelect(s.id)}>
               <span className="session-title">{s.title}</span>
               <span className="session-meta">
-                {s.date} · {s.duration} · {s.quizzes} quiz Qs
+                <SessionMeta session={s} />
               </span>
             </button>
             <button
               className="session-delete"
               title="Delete session"
-              onClick={(e) => { e.stopPropagation(); onDelete(s.id); }}
+              aria-label={`Delete ${s.title}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(s);
+              }}
             >
               <Icon name="close" size={13} />
             </button>
@@ -172,30 +316,52 @@ function Sidebar({ sessions, active, onSelect, onNew, onDelete, onHome, usedCoun
       </nav>
 
       <div className="side-footer">
-        <div className="plan-card">
-          <div className="plan-top">
-            <span className="plan-name">Trainer Plan</span>
-            <span className="plan-badge">Active</span>
-          </div>
-          <div className="plan-bar">
-            <div className="plan-bar-fill" style={{ width: `${Math.min(100, (usedCount / 10) * 100)}%` }} />
-          </div>
-          <span className="plan-note">{usedCount} of 10 sessions this month</span>
-        </div>
+        <PlanCard usage={usage} />
       </div>
     </aside>
   );
 }
 
-function TopBar({ stage, session, onNew, user, onProfile }) {
-  const recordingLabel = "Recording session";
-  const processingLabel = "Analyzing what was said";
-  const title = stage === "recording" ? recordingLabel
-    : stage === "processing" ? processingLabel
-    : (session?.title ?? "Session");
-  const sub = stage === "results" && session
-    ? `${session.date} · ${session.duration} · generated from audio transcript`
-    : null;
+function SessionMeta({ session }) {
+  if (isProcessing(session)) return <span className="session-status processing">Processing…</span>;
+  if (session.status === "failed") return <span className="session-status failed">Failed</span>;
+  return (
+    <>
+      {formatDate(session.created_at)} · {formatDuration(session.duration_seconds)} · {session.quiz_count} quiz Qs
+    </>
+  );
+}
+
+function PlanCard({ usage }) {
+  if (!usage) return null;
+  const limit = usage.plan.monthly_session_limit;
+  const used = usage.sessions_this_month;
+  return (
+    <div className="plan-card">
+      <div className="plan-top">
+        <span className="plan-name">{usage.plan.name} Plan</span>
+        <span className="plan-badge">Active</span>
+      </div>
+      {limit != null && (
+        <div className="plan-bar">
+          <div className="plan-bar-fill" style={{ width: `${Math.min(100, (used / limit) * 100)}%` }} />
+        </div>
+      )}
+      <span className="plan-note">
+        {limit != null ? `${used} of ${limit} sessions this month` : `${used} sessions this month · unlimited`}
+      </span>
+    </div>
+  );
+}
+
+function TopBar({ recording, session, onNew, user, onProfile }) {
+  let title = "Your sessions";
+  if (recording) title = "New session";
+  else if (session) title = isProcessing(session) ? "Analyzing what was said" : session.title;
+  const sub =
+    !recording && session?.status === "ready"
+      ? `${formatDate(session.created_at)} · ${formatDuration(session.duration_seconds)} · generated from audio transcript`
+      : null;
 
   return (
     <header className="topbar">
@@ -207,8 +373,8 @@ function TopBar({ stage, session, onNew, user, onProfile }) {
         <button className="btn btn-ghost" onClick={onNew}>
           <Icon name="plus" size={16} /> New
         </button>
-        <button className="avatar" onClick={onProfile} title="Profil öffnen">
-          {user?.initials ?? "?"}
+        <button className="avatar" onClick={onProfile} title="Profil öffnen" aria-label="Profil öffnen">
+          {initials(user?.name)}
         </button>
       </div>
     </header>

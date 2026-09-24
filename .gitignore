@@ -1,0 +1,9 @@
+# Docker Compose configuration with secrets (template: .env.example)
+.env
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db

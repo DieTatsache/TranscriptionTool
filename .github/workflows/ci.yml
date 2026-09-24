@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --locked --extra transcription
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest --cov
+      - name: Migrations match the models
+        env:
+          SONORA_DATABASE_URL: sqlite+aiosqlite:///./ci.db
+        run: uv run alembic upgrade head && uv run alembic check
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  images:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        run: docker build --target api -t sonora-api:ci Backend
+      - name: Build worker image
+        run: docker build --target worker -t sonora-worker:ci Backend
+      - name: Build web image
+        run: docker build -t sonora-web:ci Frontend
+      - name: Compose files are valid
+        env:
+          PUBLIC_HOST: ci.example.com
+          PUBLIC_ORIGIN: https://ci.example.com
+          POSTGRES_PASSWORD: ci-only-password
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.gpu.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.tls.yml config --quiet
