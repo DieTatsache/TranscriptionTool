@@ -1,0 +1,24 @@
+# NVIDIA GPU override (needs the NVIDIA Container Toolkit on the host):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+# Ollama and Whisper then run on the GPU (Whisper uses float16).
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  ollama:
+    <<: *gpu
+
+  worker:
+    <<: *gpu
+    build:
+      args:
+        WITH_CUDA: "true"
+    environment:
+      SONORA_WHISPER_DEVICE: cuda

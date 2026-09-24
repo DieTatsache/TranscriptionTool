@@ -1,0 +1,44 @@
+# Automatic HTTPS with Caddy (Let's Encrypt) in front of the web container:
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build
+# PUBLIC_HOST must resolve to this machine and ports 80/443 must be reachable.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set PUBLIC_HOST in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web: { condition: service_healthy }
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    restart: unless-stopped
+    networks:
+      tls:
+        ipv4_address: 172.31.254.2
+
+  web:
+    # Reachable only through Caddy, which is the one proxy allowed to set the client IP.
+    ports: !reset []
+    environment:
+      TRUSTED_PROXY_CIDR: 172.31.254.2/32
+    networks: [edge, tls]
+
+  api:
+    environment:
+      SONORA_HSTS_ENABLED: "true"
+
+networks:
+  tls:
+    ipam:
+      config:
+        - subnet: 172.31.254.0/24
+
+volumes:
+  caddy-data:
+  caddy-config:

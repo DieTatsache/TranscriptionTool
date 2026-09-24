@@ -1,0 +1,94 @@
+[project]
+name = "sonora-backend"
+version = "0.1.0"
+description = "Sonora API: turns recorded lectures into transcripts, recap scripts, quizzes and a lecture chat."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.135",
+    "uvicorn[standard]>=0.35",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.10",
+    "email-validator>=2.2",
+    "sqlalchemy[asyncio]>=2.0.40",
+    "alembic>=1.16",
+    "aiosqlite>=0.21",
+    "asyncpg>=0.30",
+    "argon2-cffi>=25.1",
+    "httpx>=0.28",
+    "python-multipart>=0.0.20",
+    "limits[async-valkey]>=5.0",
+]
+
+[project.optional-dependencies]
+# Only the worker needs the speech-to-text stack (large native wheels).
+transcription = ["faster-whisper>=1.2"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    "pytest-asyncio>=1.1",
+    "pytest-cov>=6.2",
+    "ruff>=0.12",
+    "mypy>=1.17",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers -m 'not integration'"
+markers = [
+    "integration: needs a running Ollama and/or a local Whisper model (run with -m integration)",
+]
+filterwarnings = ["error::DeprecationWarning:sonora.*"]
+
+[tool.coverage.run]
+source = ["sonora"]
+branch = true
+# SQLAlchemy's asyncio layer switches greenlets; without this coverage loses track of lines.
+concurrency = ["greenlet", "thread"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.$",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "SIM", "RUF", "ASYNC", "PT", "N", "C4", "PIE", "RET", "PTH"]
+ignore = [
+    "B008", # FastAPI dependency defaults (Depends/File/Query) are idiomatic
+    "N818", # HTTP-style error names (NotFound, Conflict, RateLimited) read better without "Error"
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: asserts, fake secrets and compound asserts (used for type narrowing) are fine.
+"tests/**" = ["S101", "S105", "S106", "S311", "PT018", "RUF012"]
+"migrations/**" = ["N999"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.File", "fastapi.Form"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+packages = ["sonora"]
+
+[[tool.mypy.overrides]]
+module = ["faster_whisper.*", "av.*", "ctranslate2.*"]
+ignore_missing_imports = true
