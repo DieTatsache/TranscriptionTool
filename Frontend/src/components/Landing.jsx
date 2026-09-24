@@ -19,7 +19,7 @@ export default function Landing({ onEnter }) {
           <a href="#how">How it works</a>
           <a href="#who">Who it's for</a>
           <a href="#pricing">Pricing</a>
-          <button className="btn btn-primary btn-sm" onClick={onEnter}>
+          <button className="btn btn-primary btn-sm" onClick={() => onEnter("login")}>
             Try the demo
           </button>
         </div>
@@ -41,7 +41,7 @@ export default function Landing({ onEnter }) {
             participants will actually use.
           </p>
           <div className="lp-hero-cta">
-            <button className="btn btn-primary btn-lg" onClick={onEnter}>
+            <button className="btn btn-primary btn-lg" onClick={() => onEnter("login")}>
               <Icon name="play" size={16} /> Try the interactive demo
             </button>
             <span className="lp-hero-note">No sign-up · takes 30 seconds</span>
@@ -191,7 +191,7 @@ export default function Landing({ onEnter }) {
               </ul>
               <button
                 className={"btn btn-block " + (p.primary ? "btn-primary" : "btn-secondary")}
-                onClick={onEnter}
+                onClick={() => onEnter(p.cta === "Start free trial" ? "register" : "login")}
               >
                 {p.cta}
               </button>
@@ -204,7 +204,7 @@ export default function Landing({ onEnter }) {
       <section className="lp-cta">
         <h2>Your last session is already forgotten.</h2>
         <p>The next one doesn't have to be. See what Sonora makes from a real training session.</p>
-        <button className="btn btn-primary btn-lg" onClick={onEnter}>
+        <button className="btn btn-primary btn-lg" onClick={() => onEnter("login")}>
           <Icon name="arrow" size={16} /> Open the demo
         </button>
       </section>

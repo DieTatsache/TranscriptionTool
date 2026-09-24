@@ -18,6 +18,11 @@ const paths = {
   refresh: "M21 12a9 9 0 1 1-2.6-6.4M21 3v5h-5",
   chat: "M21 12a8 8 0 0 1-11.2 7.3L4 21l1.7-5.8A8 8 0 1 1 21 12zM9 11h.01M12 11h.01M15 11h.01",
   close: "M18 6 6 18M6 6l12 12",
+  // Feather icons (MIT)
+  upload: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12",
+  trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6",
+  link: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+  alert: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 8v4M12 16h.01",
 };
 
 export default function Icon({ name, size = 18, stroke = 1.8, fill = "none", style }) {
