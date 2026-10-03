@@ -74,7 +74,7 @@ describe("Login", () => {
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
   }
 
-  it("signs in and reports failures in German", async () => {
+  it("signs in and reports failures in English", async () => {
     const onLogin = vi.fn();
     const login = vi
       .spyOn(api, "login")
@@ -82,12 +82,12 @@ describe("Login", () => {
       .mockResolvedValueOnce({ name: "Marie" });
     render(<Login mode="login" onModeChange={vi.fn()} meta={meta} onLogin={onLogin} />);
 
-    fill("E-Mail-Adresse", "marie@example.com");
-    fill("Passwort", "wrong-password");
-    fireEvent.click(screen.getByRole("button", { name: "Anmelden" }));
-    expect(await screen.findByText("E-Mail oder Passwort ist falsch.")).toBeTruthy();
+    fill("Email address", "marie@example.com");
+    fill("Password", "wrong-password");
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+    expect(await screen.findByText("Email or password is incorrect.")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Anmelden" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log in" }));
     await waitFor(() => expect(onLogin).toHaveBeenCalledWith({ name: "Marie" }));
     expect(login).toHaveBeenLastCalledWith("marie@example.com", "wrong-password");
   });
@@ -95,19 +95,20 @@ describe("Login", () => {
   it("registers with name, email and password", async () => {
     const register = vi.spyOn(api, "register").mockResolvedValue({ name: "Ada" });
     const onLogin = vi.fn();
-    render(<Login mode="register" onModeChange={vi.fn()} meta={meta} onLogin={onLogin} />);
+    // Use a non-paid plan so the MockPayment modal is not shown and onLogin fires directly.
+    render(<Login mode="register" onModeChange={vi.fn()} meta={meta} onLogin={onLogin} plan="starter" />);
 
     fill("Name", "Ada");
-    fill("E-Mail-Adresse", "ada@example.com");
-    fill("Passwort", "violet-harbor-lantern-42");
-    fireEvent.click(screen.getByRole("button", { name: "Konto erstellen" }));
+    fill("Email address", "ada@example.com");
+    fill("Password", "violet-harbor-lantern-42");
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
 
     await waitFor(() => expect(onLogin).toHaveBeenCalled());
-    expect(register).toHaveBeenCalledWith("Ada", "ada@example.com", "violet-harbor-lantern-42");
+    expect(register).toHaveBeenCalledWith("Ada", "ada@example.com", "violet-harbor-lantern-42", "starter");
   });
 
   it("hides registration when it is closed", () => {
     render(<Login mode="login" onModeChange={vi.fn()} meta={{ ...meta, registration_enabled: false }} onLogin={vi.fn()} />);
-    expect(screen.queryByText("Kostenlos registrieren")).toBeNull();
+    expect(screen.queryByText("Create one for free")).toBeNull();
   });
 });

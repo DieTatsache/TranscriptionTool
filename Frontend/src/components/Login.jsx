@@ -53,7 +53,7 @@ export default function Login({ mode, onModeChange, meta, notice, onLogin, plan:
       const user = mode === "register"
         ? await api.register(name, credentials.email, credentials.password, selectedPlan)
         : await api.login(credentials.email, credentials.password);
-      if (mode === "register") {
+      if (mode === "register" && (selectedPlan === "trainer" || selectedPlan === "pro")) {
         setPendingUser({ user, plan: selectedPlan });
       } else {
         onLogin(user);
