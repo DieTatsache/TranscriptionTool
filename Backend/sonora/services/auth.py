@@ -113,6 +113,7 @@ async def register(
         raise Conflict("An account with this email already exists.", code="email_taken")
 
     from sonora.plans import get_plan  # avoid circular at module level
+
     resolved_plan = services.settings.default_plan
     if plan:
         try:
