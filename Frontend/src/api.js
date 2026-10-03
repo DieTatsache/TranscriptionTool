@@ -112,9 +112,9 @@ export const api = {
   me: async () => remember(await request("/auth/me", { authProbe: true })),
   login: async (email, password) =>
     remember(await request("/auth/login", { method: "POST", body: { email, password }, authProbe: true })),
-  register: async (name, email, password) =>
+  register: async (name, email, password, plan) =>
     remember(
-      await request("/auth/register", { method: "POST", body: { name, email, password }, authProbe: true }),
+      await request("/auth/register", { method: "POST", body: { name, email, password, plan }, authProbe: true }),
     ),
   logout: async () => {
     try {

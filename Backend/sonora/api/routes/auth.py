@@ -52,6 +52,7 @@ async def register(
         name=body.name,
         email=body.email,
         password=body.password,
+        plan=body.plan,
         client=client_info(request),
     )
     await _end_previous_session(request, db, services.settings)

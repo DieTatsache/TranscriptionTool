@@ -1,6 +1,6 @@
 import Icon from "../Icon.jsx";
 
-// Marketing landing page — the friendly entry point before the product demo.
+// Marketing landing page — the friendly entry point before the product.
 export default function Landing({ onEnter }) {
   return (
     <div className="landing">
@@ -19,8 +19,11 @@ export default function Landing({ onEnter }) {
           <a href="#how">How it works</a>
           <a href="#who">Who it's for</a>
           <a href="#pricing">Pricing</a>
-          <button className="btn btn-primary btn-sm" onClick={() => onEnter("login")}>
-            Try the demo
+          <button className="btn btn-secondary btn-sm" onClick={() => onEnter("login")}>
+            Log in
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => onEnter("register")}>
+            Create account
           </button>
         </div>
       </nav>
@@ -41,10 +44,12 @@ export default function Landing({ onEnter }) {
             participants will actually use.
           </p>
           <div className="lp-hero-cta">
-            <button className="btn btn-primary btn-lg" onClick={() => onEnter("login")}>
-              <Icon name="play" size={16} /> Try the interactive demo
+            <button className="btn btn-primary btn-lg" onClick={() => onEnter("register")}>
+              <Icon name="arrow" size={16} /> Create your account
             </button>
-            <span className="lp-hero-note">No sign-up · takes 30 seconds</span>
+            <button className="btn btn-ghost btn-lg" onClick={() => onEnter("login")}>
+              Log in
+            </button>
           </div>
           <div className="lp-trust">
             <Icon name="check" size={14} /> Grounded in real audio, with timestamps you can verify
@@ -170,9 +175,8 @@ export default function Landing({ onEnter }) {
         </div>
         <div className="lp-pricing">
           {[
-            { name: "Starter", price: "€0", per: "to try", tagline: "See the full flow on a demo session.", features: ["Interactive demo", "1 sample session", "Script + quiz preview"], cta: "Try the demo", primary: false },
-            { name: "Trainer", price: "€49", per: "/ month", tagline: "For the working trainer.", features: ["10 sessions / month", "Script, quiz & video", "Shareable participant links", "Client-ready reports"], cta: "Start free trial", primary: true, badge: "Most popular" },
-            { name: "Pro", price: "€99", per: "/ month", tagline: "For high-volume schedules.", features: ["Unlimited sessions", "Everything in Trainer", "Custom branding", "Priority rendering"], cta: "Start free trial", primary: false },
+            { name: "Trainer", price: "€49", per: "/ month", tagline: "For the working trainer.", features: ["10 sessions / month", "Script, quiz & video", "Shareable participant links", "Client-ready reports"], cta: "Get Trainer", primary: true, badge: "Most popular", plan: "trainer" },
+            { name: "Pro", price: "€99", per: "/ month", tagline: "For high-volume schedules.", features: ["Unlimited sessions", "Everything in Trainer", "Custom branding", "Priority rendering"], cta: "Get Pro", primary: false, plan: "pro" },
           ].map((p) => (
             <div className={"lp-price-card" + (p.primary ? " featured" : "")} key={p.name}>
               {p.badge && <span className="lp-price-badge">{p.badge}</span>}
@@ -191,7 +195,7 @@ export default function Landing({ onEnter }) {
               </ul>
               <button
                 className={"btn btn-block " + (p.primary ? "btn-primary" : "btn-secondary")}
-                onClick={() => onEnter(p.cta === "Start free trial" ? "register" : "login")}
+                onClick={() => onEnter("register", p.plan)}
               >
                 {p.cta}
               </button>
@@ -203,10 +207,15 @@ export default function Landing({ onEnter }) {
       {/* ---- Final CTA ---- */}
       <section className="lp-cta">
         <h2>Your last session is already forgotten.</h2>
-        <p>The next one doesn't have to be. See what Sonora makes from a real training session.</p>
-        <button className="btn btn-primary btn-lg" onClick={() => onEnter("login")}>
-          <Icon name="arrow" size={16} /> Open the demo
-        </button>
+        <p>The next one doesn't have to be. Start turning your training sessions into lasting material.</p>
+        <div className="lp-cta-btns">
+          <button className="btn btn-primary btn-lg" onClick={() => onEnter("register")}>
+            <Icon name="arrow" size={16} /> Create your account
+          </button>
+          <button className="btn btn-ghost btn-lg" onClick={() => onEnter("login")}>
+            Log in
+          </button>
+        </div>
       </section>
 
       <footer className="lp-footer">
@@ -216,7 +225,7 @@ export default function Landing({ onEnter }) {
           </div>
           <span>Sonora — from what was said</span>
         </div>
-        <span className="lp-footer-note">Demo · fictional product · © 2026</span>
+        <span className="lp-footer-note">© 2026</span>
       </footer>
     </div>
   );

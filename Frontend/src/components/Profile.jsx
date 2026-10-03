@@ -53,9 +53,6 @@ export default function Profile({ user, meta, onUserChange, onBack, onLogout, on
         <button className="btn btn-ghost btn-sm" onClick={onBack}>
           <Icon name="arrow" size={15} style={{ transform: "rotate(180deg)" }} /> Zurück
         </button>
-        <button className="btn btn-ghost btn-sm logout-btn" onClick={onLogout}>
-          Abmelden
-        </button>
       </div>
 
       <div className="profile-layout">
@@ -82,6 +79,10 @@ export default function Profile({ user, meta, onUserChange, onBack, onLogout, on
                 {t.label}
               </button>
             ))}
+            <div className="profile-nav-divider" />
+            <button className="profile-nav-btn profile-nav-logout" onClick={onLogout}>
+              Abmelden
+            </button>
           </nav>
         </aside>
 
@@ -90,7 +91,7 @@ export default function Profile({ user, meta, onUserChange, onBack, onLogout, on
           {activeTab === "settings" && (
             <Settings user={user} meta={meta} onUserChange={onUserChange} onDeleted={onDeleted} />
           )}
-          {activeTab === "billing" && <Billing usage={usage} />}
+          {activeTab === "billing" && <Billing usage={usage} onLogout={onLogout} />}
         </main>
       </div>
     </div>
@@ -436,7 +437,7 @@ function DeleteAccount({ onDeleted }) {
   );
 }
 
-function Billing({ usage }) {
+function Billing({ usage, onLogout }) {
   if (!usage) return <span className="proc-spinner" />;
   const { plan } = usage;
   const limit = plan.monthly_session_limit;

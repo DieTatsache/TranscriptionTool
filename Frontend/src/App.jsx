@@ -25,6 +25,7 @@ export default function App() {
 function TrainerApp() {
   const [view, setView] = useState("loading"); // loading | landing | login | app | profile
   const [loginMode, setLoginMode] = useState("login");
+  const [loginPlan, setLoginPlan] = useState(null);
   const [user, setUser] = useState(null);
   const [meta, setMeta] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -46,12 +47,13 @@ function TrainerApp() {
       .catch(() => setView("landing"));
   }, []);
 
-  const enter = (mode = "login") => {
+  const enter = (mode = "login", plan = null) => {
     if (user) {
       setView("app");
       return;
     }
     setLoginMode(mode);
+    setLoginPlan(plan);
     setNotice(null);
     setView("login");
   };
@@ -65,7 +67,7 @@ function TrainerApp() {
   const handleLogout = async () => {
     await api.logout().catch(() => {});
     setUser(null);
-    setView("login");
+    setView("landing");
   };
 
   const handleAccountDeleted = () => {
@@ -83,7 +85,7 @@ function TrainerApp() {
   if (view === "landing") return <Landing onEnter={enter} />;
   if (view === "login" || !user) {
     return (
-      <Login mode={loginMode} onModeChange={setLoginMode} meta={meta} notice={notice} onLogin={handleLogin} />
+      <Login mode={loginMode} onModeChange={setLoginMode} meta={meta} notice={notice} onLogin={handleLogin} plan={loginPlan} />
     );
   }
   if (view === "profile") {
