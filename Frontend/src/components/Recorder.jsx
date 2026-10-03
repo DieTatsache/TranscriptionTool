@@ -234,8 +234,8 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
               <button className="btn btn-ghost" onClick={onCancel}>
                 Cancel
               </button>
-              <button className="btn btn-primary" onClick={start} disabled={outOfQuota}>
-                <Icon name="mic" size={16} /> Start recording
+              <button className="btn-rec-start" onClick={start} disabled={outOfQuota}>
+                <Icon name="mic" size={20} /> Start recording
               </button>
             </div>
             <p className="rec-hint">
@@ -248,7 +248,7 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
               <span className={"rec-dot" + (paused ? " paused" : "") + (phase === "starting" ? " waiting" : "")} />
               {phase === "starting" ? "Requesting microphone…" : paused ? "Paused" : "Recording"}
             </div>
-            <div className="rec-timer">
+            <div className={"rec-timer" + (phase === "recording" && !paused ? " active" : "")}>
               {mm}:{ss}
             </div>
             <Waveform active={phase === "recording" && !paused} stream={stream} />
@@ -256,10 +256,10 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
               <button className="btn btn-ghost" onClick={cancel}>
                 Discard
               </button>
-              <button className="btn btn-secondary" disabled={phase !== "recording"} onClick={togglePause}>
-                {paused ? "Resume" : "Pause"}
+              <button className="btn-rec-pause" disabled={phase !== "recording"} onClick={togglePause}>
+                {paused ? "▶ Resume" : "⏸ Pause"}
               </button>
-              <button className="btn btn-primary" disabled={phase !== "recording"} onClick={stop}>
+              <button className="btn-rec-stop" disabled={phase !== "recording"} onClick={stop}>
                 <Icon name="check" size={16} /> Stop & analyze
               </button>
             </div>

@@ -92,3 +92,14 @@ button {
     transform: rotate(360deg);
   }
 }
+
+@keyframes rec-breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent),
+                0 4px 14px color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 0%, transparent),
+                0 4px 22px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+}

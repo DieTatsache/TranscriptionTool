@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import QRCode from "qrcode";
 import Icon from "../Icon.jsx";
 import { api } from "../api.js";
 import { FEATURES } from "../features.js";
@@ -115,6 +117,7 @@ function ShareModal({ sessionId, onClose }) {
   const [links, setLinks] = useState(null);
   const [busy, setBusy] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+  const [qrId, setQrId] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -169,90 +172,133 @@ function ShareModal({ sessionId, onClose }) {
     }
   };
 
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-card modal-wide"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="share-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <h2 id="share-title">Mit Teilnehmern teilen</h2>
-          <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Schließen">
-            <Icon name="close" size={16} />
-          </button>
-        </div>
-        <p className="modal-sub">
-          Wähle aus, welche Inhalte die Teilnehmer sehen dürfen. Sie brauchen keinen Account — nur den Link. Du
-          kannst Links jederzeit widerrufen.
-        </p>
+  return createPortal(
+    <>
+      <div className="modal-backdrop" onClick={onClose}>
+        <div
+          className="modal-card modal-wide"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="share-title"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="modal-head">
+            <h2 id="share-title">Mit Teilnehmern teilen</h2>
+            <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Schließen">
+              <Icon name="close" size={16} />
+            </button>
+          </div>
+          <p className="modal-sub">
+            Wähle aus, welche Inhalte die Teilnehmer sehen dürfen. Sie brauchen keinen Account — nur den Link. Du
+            kannst Links jederzeit widerrufen.
+          </p>
 
-        <div className="share-tab-list">
-          {SHARE_TAB_OPTIONS.map((opt) => (
-            <label key={opt.id} className={"share-tab-row" + (selected.includes(opt.id) ? " checked" : "")}>
-              <input type="checkbox" checked={selected.includes(opt.id)} onChange={() => toggle(opt.id)} />
-              <Icon name={opt.icon} size={16} />
-              <span>{opt.label}</span>
-              <span className={"share-check" + (selected.includes(opt.id) ? " on" : "")}>
-                <Icon name="check" size={13} />
-              </span>
-            </label>
-          ))}
-        </div>
-
-        <div className="share-url-row">
-          <label className="share-expiry">
-            <span>Gültig</span>
-            <select
-              className="field-input"
-              value={expiry ?? "never"}
-              onChange={(e) => setExpiry(e.target.value === "never" ? null : Number(e.target.value))}
-            >
-              {EXPIRY_OPTIONS.map((o) => (
-                <option key={o.label} value={o.days ?? "never"}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="btn btn-primary btn-sm" onClick={create} disabled={selected.length === 0 || busy}>
-            <Icon name="link" size={15} /> Link erstellen & kopieren
-          </button>
-        </div>
-        {selected.length === 0 && <p className="share-warn">Bitte wähle mindestens einen Inhalt aus.</p>}
-        {error && <p className="share-warn">{error}</p>}
-
-        <div className="share-links">
-          <div className="side-label">Aktive Links</div>
-          {links === null && <span className="proc-spinner" />}
-          {links?.length === 0 && <p className="share-empty">Noch keine Links erstellt.</p>}
-          {links?.map((link) => (
-            <div className="share-link" key={link.id}>
-              <div className="share-link-info">
-                <span className="share-link-tabs">{link.tabs.map((t) => TAB_LABELS[t] ?? t).join(" · ")}</span>
-                <span className="share-link-meta">
-                  erstellt {formatDate(link.created_at, "de-DE")} ·{" "}
-                  {link.expires_at ? `gültig bis ${formatDate(link.expires_at, "de-DE")}` : "unbegrenzt gültig"}
+          <div className="share-tab-list">
+            {SHARE_TAB_OPTIONS.map((opt) => (
+              <label key={opt.id} className={"share-tab-row" + (selected.includes(opt.id) ? " checked" : "")}>
+                <input type="checkbox" checked={selected.includes(opt.id)} onChange={() => toggle(opt.id)} />
+                <Icon name={opt.icon} size={16} />
+                <span>{opt.label}</span>
+                <span className={"share-check" + (selected.includes(opt.id) ? " on" : "")}>
+                  <Icon name="check" size={13} />
                 </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="share-url-row">
+            <label className="share-expiry">
+              <span>Gültig</span>
+              <select
+                className="field-input"
+                value={expiry ?? "never"}
+                onChange={(e) => setExpiry(e.target.value === "never" ? null : Number(e.target.value))}
+              >
+                {EXPIRY_OPTIONS.map((o) => (
+                  <option key={o.label} value={o.days ?? "never"}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="btn btn-primary btn-sm" onClick={create} disabled={selected.length === 0 || busy}>
+              <Icon name="link" size={15} /> Link erstellen & kopieren
+            </button>
+          </div>
+          {selected.length === 0 && <p className="share-warn">Bitte wähle mindestens einen Inhalt aus.</p>}
+          {error && <p className="share-warn">{error}</p>}
+
+          <div className="share-links">
+            <div className="side-label">Aktive Links</div>
+            {links === null && <span className="proc-spinner" />}
+            {links?.length === 0 && <p className="share-empty">Noch keine Links erstellt.</p>}
+            {links?.map((link) => (
+              <div className="share-link" key={link.id}>
+                <div className="share-link-info">
+                  <span className="share-link-tabs">{link.tabs.map((t) => TAB_LABELS[t] ?? t).join(" · ")}</span>
+                  <span className="share-link-meta">
+                    erstellt {formatDate(link.created_at, "de-DE")} ·{" "}
+                    {link.expires_at ? `gültig bis ${formatDate(link.expires_at, "de-DE")}` : "unbegrenzt gültig"}
+                  </span>
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => copy(link)}>
+                  <Icon name={copiedId === link.id ? "check" : "copy"} size={14} />
+                  {copiedId === link.id ? "Kopiert!" : "Kopieren"}
+                </button>
+                <button
+                  className={"btn btn-ghost btn-sm" + (qrId === link.id ? " active" : "")}
+                  onClick={() => setQrId((prev) => (prev === link.id ? null : link.id))}
+                  title="QR-Code anzeigen"
+                >
+                  <Icon name="qr" size={14} /> QR
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => revoke(link)} title="Link widerrufen">
+                  <Icon name="trash" size={14} />
+                </button>
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => copy(link)}>
-                <Icon name={copiedId === link.id ? "check" : "copy"} size={14} />
-                {copiedId === link.id ? "Kopiert!" : "Kopieren"}
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => revoke(link)} title="Link widerrufen">
-                <Icon name="trash" size={14} />
-              </button>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
-    </div>
+      {qrId && links && (
+        <QrPopup
+          url={shareUrl(links.find((l) => l.id === qrId)?.token ?? "")}
+          onClose={() => setQrId(null)}
+        />
+      )}
+    </>,
+    document.body
   );
 }
 
-// ---- Views shared with the participant page ----
+function QrPopup({ url, onClose }) {
+  const [svg, setSvg] = useState(null);
+
+  useEffect(() => {
+    QRCode.toString(url, { type: "svg", margin: 1, width: 260, color: { dark: "#0f1117", light: "#ffffff" } })
+      .then(setSvg)
+      .catch(() => setSvg(""));
+  }, [url]);
+
+  return createPortal(
+    <div className="qr-modal-backdrop" onClick={onClose}>
+      <div className="qr-modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="qr-popup-head">
+          <span>QR-Code</span>
+          <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Schließen">
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+        {svg
+          ? <div className="qr-image" dangerouslySetInnerHTML={{ __html: svg }} />
+          : <span className="proc-spinner" />
+        }
+        <p className="qr-url">{url}</p>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 export function ScriptView({ script, onShare }) {
   const [copied, setCopied] = useState(false);
