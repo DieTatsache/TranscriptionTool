@@ -67,7 +67,7 @@ class RegisterRequest(BaseModel):
     name: Name
     email: Email
     password: Password
-    plan: str = "trainer"
+    plan: str | None = None
 
 
 class LoginRequest(BaseModel):

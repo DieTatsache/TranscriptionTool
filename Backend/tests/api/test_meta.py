@@ -38,5 +38,5 @@ async def test_meta_exposes_client_configuration(client: httpx.AsyncClient) -> N
     assert meta["max_upload_mb"] == 50
     assert meta["password_min_length"] == 14
     assert meta["max_audio_minutes"] == 180
-    assert meta["share_tabs"] == ["script", "quiz", "transcript"]
+    assert meta["share_tabs"] == ["script", "quiz", "transcript", "feedback"]
     assert {"code": "de", "name": "German"} in meta["languages"]
