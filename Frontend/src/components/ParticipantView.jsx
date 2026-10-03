@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Icon from "../Icon.jsx";
 import { api } from "../api.js";
 import { QuizView, ScriptView, TranscriptView } from "./Results.jsx";
+import FeedbackView from "./FeedbackView.jsx";
 
 // Public page behind a share link. The server decides which tabs are visible; the token
 // in the URL cannot be edited to reveal more.
@@ -9,6 +10,7 @@ const TAB_DEFS = [
   { id: "script", label: "Script", icon: "script" },
   { id: "quiz", label: "Quiz", icon: "quiz" },
   { id: "transcript", label: "Transcript", icon: "transcript" },
+  { id: "feedback", label: "Feedback", icon: "spark" },
 ];
 
 export default function ParticipantView({ token }) {
@@ -85,6 +87,7 @@ export default function ParticipantView({ token }) {
                 <QuizView quiz={share.quiz} onCheck={(answers) => api.checkSharedQuiz(token, answers)} />
               )}
               {activeTab === "transcript" && share.transcript && <TranscriptView transcript={share.transcript} />}
+              {activeTab === "feedback" && <FeedbackView />}
             </div>
           </>
         )}
@@ -95,9 +98,6 @@ export default function ParticipantView({ token }) {
           <span className="participant-footer-text">
             Erstellt mit <strong>Sonora</strong> — aus dem, was wirklich gesagt wurde.
           </span>
-          <a className="btn btn-primary btn-sm" href="/">
-            <Icon name="mic" size={14} /> Eigene Sessions erstellen
-          </a>
         </div>
       </footer>
     </div>

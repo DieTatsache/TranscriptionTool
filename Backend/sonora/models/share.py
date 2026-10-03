@@ -17,6 +17,7 @@ class ShareTab(StrEnum):
     SCRIPT = "script"
     QUIZ = "quiz"
     TRANSCRIPT = "transcript"
+    FEEDBACK = "feedback"
 
 
 class ShareLink(UUIDPrimaryKey, Base):

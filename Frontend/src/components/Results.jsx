@@ -95,6 +95,7 @@ const SHARE_TAB_OPTIONS = [
   { id: "script", label: "Script & Zusammenfassung", icon: "script" },
   { id: "quiz", label: "Quiz", icon: "quiz" },
   { id: "transcript", label: "Transkript", icon: "transcript" },
+  { id: "feedback", label: "Feedback-Formular", icon: "spark" },
 ];
 const EXPIRY_OPTIONS = [
   { days: 7, label: "7 Tage" },
@@ -102,7 +103,7 @@ const EXPIRY_OPTIONS = [
   { days: 90, label: "90 Tage" },
   { days: null, label: "Unbegrenzt" },
 ];
-const TAB_LABELS = { script: "Script", quiz: "Quiz", transcript: "Transkript" };
+const TAB_LABELS = { script: "Script", quiz: "Quiz", transcript: "Transkript", feedback: "Feedback" };
 
 function shareUrl(token) {
   return `${window.location.origin}/share/${token}`;
