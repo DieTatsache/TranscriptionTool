@@ -1,6 +1,10 @@
+# Local debugging only: publishes the API on the host's loopback interface, bypassing nginx.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Bound to 127.0.0.1 on purpose: the API trusts X-Forwarded-For (FORWARDED_ALLOW_IPS="*")
+# because normally only nginx can reach it. Never publish this port to other machines.
 services:
   api:
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     networks:
       - edge

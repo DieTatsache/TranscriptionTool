@@ -10,6 +10,7 @@ from sonora.api.schemas import (
     QuizCheckRequest,
     QuizQuestion,
     QuizResultOut,
+    QuizStatsOut,
     Script,
     SessionDetail,
     SessionSummary,
@@ -98,4 +99,11 @@ async def retry_session(
 
 @router.post("/{session_id}/quiz/check", response_model=QuizResultOut)
 async def check_quiz(body: QuizCheckRequest, session: OwnedSessionWithContent) -> QuizResultOut:
+    """The owner trying their own quiz: graded, never counted in the statistics."""
     return QuizResultOut.model_validate(quiz_service.grade(session.quiz, body.answers))
+
+
+@router.get("/{session_id}/quiz/results", response_model=QuizStatsOut)
+async def quiz_results(session: OwnedSessionWithContent, db: DB) -> QuizStatsOut:
+    """How listeners answered on their first attempt, per question and option."""
+    return QuizStatsOut.model_validate(await quiz_service.statistics(db, session))

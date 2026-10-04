@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Icon from "../Icon.jsx";
 import { api } from "../api.js";
-import { QuizView, ScriptView, TranscriptView } from "./Results.jsx";
+import { QuizView, ScriptView, SharedChatView, TranscriptView } from "./Results.jsx";
 import FeedbackView from "./FeedbackView.jsx";
 
 // Public page behind a share link. The server decides which tabs are visible; the token
@@ -9,8 +9,9 @@ import FeedbackView from "./FeedbackView.jsx";
 const TAB_DEFS = [
   { id: "script", label: "Script", icon: "script" },
   { id: "quiz", label: "Quiz", icon: "quiz" },
+  { id: "chat", label: "Chatbot", icon: "chat" },
   { id: "transcript", label: "Transcript", icon: "transcript" },
-  { id: "feedback", label: "Feedback", icon: "spark" },
+  { id: "feedback", label: "Feedback", icon: "star" },
 ];
 
 export default function ParticipantView({ token }) {
@@ -44,7 +45,7 @@ export default function ParticipantView({ token }) {
         </div>
         <div className="participant-session-title">{share?.title ?? ""}</div>
         <a className="btn btn-ghost btn-sm participant-cta" href="/">
-          Für Trainer →
+          For trainers →
         </a>
       </nav>
 
@@ -52,13 +53,13 @@ export default function ParticipantView({ token }) {
         {error ? (
           <div className="participant-message">
             <Icon name="alert" size={22} />
-            <h2>{error.status === 404 ? "Link nicht verfügbar" : "Etwas ist schiefgelaufen"}</h2>
+            <h2>{error.status === 404 ? "Link not available" : "Something went wrong"}</h2>
             <p>
               {error.status === 404
-                ? "Dieser Link ist ungültig, abgelaufen oder wurde vom Trainer widerrufen."
+                ? "This link is invalid, has expired, or was revoked by the trainer."
                 : error.status === 429
-                  ? "Zu viele Anfragen. Bitte versuche es in einer Minute erneut."
-                  : "Die Inhalte konnten nicht geladen werden. Bitte versuche es später erneut."}
+                  ? "Too many requests. Please try again in a minute."
+                  : "The content could not be loaded. Please try again later."}
             </p>
           </div>
         ) : !share ? (
@@ -67,6 +68,16 @@ export default function ParticipantView({ token }) {
           </div>
         ) : (
           <>
+            {share.viewer_is_owner && (
+              <div className="banner info participant-owner-banner">
+                <Icon name="spark" size={16} />
+                <span>
+                  This is your own share link. Your quiz answers and feedback here don&apos;t count towards your
+                  listener statistics. To try it as a listener, open the link in a private window or another
+                  browser.
+                </span>
+              </div>
+            )}
             <div className="tabs" role="tablist">
               {visibleTabs.map((t) => (
                 <button
@@ -86,8 +97,21 @@ export default function ParticipantView({ token }) {
               {activeTab === "quiz" && share.quiz && (
                 <QuizView quiz={share.quiz} onCheck={(answers) => api.checkSharedQuiz(token, answers)} />
               )}
+              {share.tabs.includes("chat") && (
+                // Stays mounted on other tabs: the conversation only lives in this page.
+                <div hidden={activeTab !== "chat"}>
+                  <SharedChatView token={token} script={share.script} />
+                </div>
+              )}
               {activeTab === "transcript" && share.transcript && <TranscriptView transcript={share.transcript} />}
-              {activeTab === "feedback" && <FeedbackView />}
+              {activeTab === "feedback" && share.feedback_form && (
+                <FeedbackView
+                  form={share.feedback_form}
+                  submitted={share.feedback_submitted}
+                  isOwner={share.viewer_is_owner}
+                  onSubmit={(ratings, comment) => api.submitFeedback(token, ratings, comment)}
+                />
+              )}
             </div>
           </>
         )}
@@ -96,7 +120,7 @@ export default function ParticipantView({ token }) {
       <footer className="participant-footer">
         <div className="participant-footer-inner">
           <span className="participant-footer-text">
-            Erstellt mit <strong>Sonora</strong> — aus dem, was wirklich gesagt wurde.
+            Made with <strong>Sonora</strong> — from what was actually said.
           </span>
         </div>
       </footer>

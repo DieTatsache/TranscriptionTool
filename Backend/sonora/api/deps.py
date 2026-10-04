@@ -1,22 +1,26 @@
-"""FastAPI dependencies: services, database session, authentication and rate limits."""
+"""FastAPI dependencies: services, database session, authentication, listener identity
+and rate limits."""
 
 import uuid
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
-from fastapi import Depends, Request
+from fastapi import Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sonora.config import Settings
 from sonora.container import Services
 from sonora.errors import NotAuthenticated, PermissionDenied
 from sonora.models import TrainingSession, User
-from sonora.security import tokens_match
+from sonora.security import is_token, new_token, token_digest, tokens_match
 from sonora.services import auth as auth_service
 from sonora.services import sessions as sessions_service
 from sonora.services.auth import AuthContext, ClientInfo
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 CSRF_HEADER = "X-CSRF-Token"
+# A year: long enough to cover share links, below browsers' 400-day cookie cap.
+PARTICIPANT_COOKIE_MAX_AGE = 365 * 24 * 3600
 
 
 def get_services(request: Request) -> Services:
@@ -70,6 +74,49 @@ async def get_current_user(auth: Auth) -> User:
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def get_viewer(request: Request, db: DB, services: ServicesDep) -> User | None:
+    """The signed-in user on public pages, if any; never fails (no CSRF: read-only use)."""
+    token = request.cookies.get(services.settings.session_cookie_name)
+    if not token:
+        return None
+    auth = await auth_service.resolve_session(db, services, token)
+    return auth.user if auth else None
+
+
+Viewer = Annotated[User | None, Depends(get_viewer)]
+
+
+def read_participant(request: Request, settings: Settings) -> str | None:
+    """The anonymous listener id from the participant cookie (well-formed values only)."""
+    token = request.cookies.get(settings.participant_cookie_name, "")
+    return token if is_token(token) else None
+
+
+def issue_participant(response: Response, settings: Settings) -> str:
+    token = new_token()
+    response.set_cookie(
+        settings.participant_cookie_name,
+        token,
+        max_age=PARTICIPANT_COOKIE_MAX_AGE,
+        path="/",
+        secure=settings.cookie_secure,
+        httponly=True,
+        samesite="strict",  # a cross-site page can't submit on a listener's behalf
+    )
+    return token
+
+
+def rate_limit_participant(rule: str, scope: str) -> Any:
+    """Per-listener limit on public endpoints (keyed by a hash of the participant cookie)."""
+
+    async def dependency(request: Request, services: ServicesDep) -> None:
+        participant = read_participant(request, services.settings)
+        if participant is not None:
+            await services.rate_limiter.hit(rule, scope, token_digest(participant))
+
+    return Depends(dependency)
 
 
 async def get_owned_session(session_id: uuid.UUID, db: DB, user: CurrentUser) -> TrainingSession:

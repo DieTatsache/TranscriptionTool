@@ -26,6 +26,14 @@ export default defineConfig(({ mode }) => {
       // Worker threads start reliably everywhere (forked workers time out on some Windows setups).
       pool: 'threads',
       setupFiles: ['./src/test/setup.js'],
+      coverage: {
+        provider: 'v8',
+        include: ['src/**/*.{js,jsx}'],
+        exclude: ['src/test/**', 'src/main.jsx'],
+        reporter: ['text', 'html'],
+        // Enforced by `npm run test:coverage` (and CI).
+        thresholds: { statements: 90, branches: 85, functions: 85, lines: 90 },
+      },
     },
   }
 })

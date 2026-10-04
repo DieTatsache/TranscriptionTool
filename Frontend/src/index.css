@@ -18,6 +18,12 @@
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
   --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  /* Charts: validated for the dark surfaces (lightness band, >= 3:1 contrast) */
+  --viz-series: #3987e5;
+  --viz-muted: #6b7486;
+  --viz-grid: #262d3a;
+  --viz-track: #1c2230;
 }
 
 * {

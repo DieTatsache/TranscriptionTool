@@ -1,7 +1,15 @@
 import Icon from "../Icon.jsx";
+import { formatPrice } from "../format.js";
+import { findPlan, isFreePlan, offeredPlans } from "../plans.js";
+import { BarRow, RadarChart } from "./charts.jsx";
+import { PlansLoading } from "./PlanCards.jsx";
 
 // Marketing landing page — the friendly entry point before the product.
-export default function Landing({ onEnter }) {
+export default function Landing({ onEnter, meta }) {
+  const free = findPlan(meta, "free");
+  const start = () => (free ? onEnter("register", free.id) : onEnter("register"));
+  const startLabel = free ? "Start for free" : "Create your account";
+
   return (
     <div className="landing">
       {/* ---- Nav ---- */}
@@ -17,7 +25,8 @@ export default function Landing({ onEnter }) {
         </div>
         <div className="lp-nav-links">
           <a href="#how">How it works</a>
-          <a href="#who">Who it's for</a>
+          <a href="#features">Features</a>
+          <a href="#who">Who it&apos;s for</a>
           <a href="#pricing">Pricing</a>
           <button className="btn btn-secondary btn-sm" onClick={() => onEnter("login")}>
             Log in
@@ -36,16 +45,16 @@ export default function Landing({ onEnter }) {
           </span>
           <h1>
             Turn what you <em>said</em> into
-            <br /> a recap, a quiz, and a video.
+            <br /> a recap, a quiz, and real feedback.
           </h1>
           <p>
             Record your session. Sonora listens to the room — not your slides — and turns the actual
-            conversation into a short script, an interactive quiz, and a 90-second recap clip your
-            participants will actually use.
+            conversation into a short script and an interactive quiz for your participants, collects their
+            feedback, and shows you how the session came across.
           </p>
           <div className="lp-hero-cta">
-            <button className="btn btn-primary btn-lg" onClick={() => onEnter("register")}>
-              <Icon name="arrow" size={16} /> Create your account
+            <button className="btn btn-primary btn-lg" onClick={start}>
+              <Icon name="arrow" size={16} /> {startLabel}
             </button>
             <button className="btn btn-ghost btn-lg" onClick={() => onEnter("login")}>
               Log in
@@ -75,7 +84,7 @@ export default function Landing({ onEnter }) {
         <div className="lp-strip-divider" />
         <div className="lp-strip-item">
           <strong>Proof it landed.</strong>
-          <span>Show clients the training worked — and rebook.</span>
+          <span>Quiz results and feedback show what stuck.</span>
         </div>
       </section>
 
@@ -83,14 +92,15 @@ export default function Landing({ onEnter }) {
       <section className="lp-section" id="how">
         <div className="lp-section-head">
           <span className="lp-kicker">How it works</span>
-          <h2>Record once. Get three deliverables.</h2>
-          <p>The whole flow, from a live session to shareable follow-up material, in minutes.</p>
+          <h2>Record once. Share it, and learn from it.</h2>
+          <p>From a live session to follow-up material and honest feedback, in minutes.</p>
         </div>
         <div className="lp-steps">
           {[
-            { icon: "mic", n: "1", title: "Record the session", body: "Hit record in the room, or upload an existing audio file. Speakers are separated automatically." },
-            { icon: "spark", n: "2", title: "Sonora analyzes the audio", body: "It extracts the key points from what was actually said — the reframes, the examples, the answers to real questions." },
-            { icon: "script", n: "3", title: "Share the follow-up", body: "A clean recap script, an auto-graded quiz, and a short recap video — all ready to send to participants." },
+            { icon: "mic", n: "1", title: "Record the session", body: "Hit record in the room, or upload an existing audio file. Your recording never goes to a third-party AI service." },
+            { icon: "spark", n: "2", title: "Sonora works through it", body: "It pulls out the key points from what was actually said — the reframes, the examples, the answers to real questions." },
+            { icon: "link", n: "3", title: "Share one link", body: "Script, quiz and a feedback form behind one link or QR code. Participants don't need an account." },
+            { icon: "chart", n: "4", title: "See what landed", body: "Quiz results show what stuck, feedback shows how it felt, and the lecture analysis shows what to sharpen next time." },
           ].map((s) => (
             <div className="lp-step-card" key={s.n}>
               <div className="lp-step-icon">
@@ -105,19 +115,19 @@ export default function Landing({ onEnter }) {
       </section>
 
       {/* ---- Feature showcase ---- */}
-      <section className="lp-section lp-features">
+      <section className="lp-section lp-features" id="features">
         <div className="lp-feature">
           <div className="lp-feature-text">
             <span className="lp-kicker">The recap script</span>
-            <h2>The key points, in the trainer's own words.</h2>
+            <h2>The key points, in the trainer&apos;s own words.</h2>
             <p>
-              No generic summary. Each point carries the exact quote it came from and a timestamp, so
-              participants — and clients — can trust it reflects the real session.
+              No generic summary. Every takeaway links to the moment it was said, so participants — and
+              clients — can trust it reflects the real session.
             </p>
             <ul className="lp-checklist">
-              <li><Icon name="check" size={15} /> Verbatim quotes with timestamps</li>
-              <li><Icon name="check" size={15} /> One-click copy or share</li>
-              <li><Icon name="check" size={15} /> Editable before you send</li>
+              <li><Icon name="check" size={15} /> Takeaways with the timestamp they were said at</li>
+              <li><Icon name="check" size={15} /> Summary, overview and open questions</li>
+              <li><Icon name="check" size={15} /> Copy it, or share it by link</li>
             </ul>
           </div>
           <div className="lp-feature-visual">
@@ -131,16 +141,54 @@ export default function Landing({ onEnter }) {
             <h2>Interactive quizzes that fight forgetting.</h2>
             <p>
               Every question is generated from a real moment in the session and shows its source. Participants
-              retrieve what they heard instead of letting it fade.
+              retrieve what they heard instead of letting it fade — and you see which answers they picked.
             </p>
             <ul className="lp-checklist">
               <li><Icon name="check" size={15} /> Auto-graded, instant feedback</li>
-              <li><Icon name="check" size={15} /> Each answer sourced to a timestamp</li>
-              <li><Icon name="check" size={15} /> Pedagogical value, not a gimmick</li>
+              <li><Icon name="check" size={15} /> Each answer explained and sourced to a timestamp</li>
+              <li><Icon name="check" size={15} /> Results per question from every listener&apos;s first try</li>
             </ul>
           </div>
           <div className="lp-feature-visual">
             <MiniQuiz />
+          </div>
+        </div>
+
+        <div className="lp-feature">
+          <div className="lp-feature-text">
+            <span className="lp-kicker">Listener feedback</span>
+            <h2>Hear from the whole room, not just the loudest voice.</h2>
+            <p>
+              Every share link can carry a short feedback form: overall rating, clarity, pace and relevance, plus
+              one open question. Answers are anonymous, and you see them as soon as they come in.
+            </p>
+            <ul className="lp-checklist">
+              <li><Icon name="check" size={15} /> Anonymous, no account needed</li>
+              <li><Icon name="check" size={15} /> One response per listener</li>
+              <li><Icon name="check" size={15} /> Shares, averages and every comment</li>
+            </ul>
+          </div>
+          <div className="lp-feature-visual">
+            <MiniFeedback />
+          </div>
+        </div>
+
+        <div className="lp-feature reverse">
+          <div className="lp-feature-text">
+            <span className="lp-kicker">Lecture analysis</span>
+            <h2>A second opinion on how it came across.</h2>
+            <p>
+              Content, rhetoric and structure, each scored from 1 to 10 with the reasons and a concrete tip for
+              next time — plus how long you spent on each topic and how fast you spoke. Only you see it.
+            </p>
+            <ul className="lp-checklist">
+              <li><Icon name="check" size={15} /> Scores with reasons, not just numbers</li>
+              <li><Icon name="check" size={15} /> Time per topic and speaking pace</li>
+              <li><Icon name="check" size={15} /> Private to you, never shared</li>
+            </ul>
+          </div>
+          <div className="lp-feature-visual">
+            <MiniAnalysis />
           </div>
         </div>
       </section>
@@ -148,7 +196,7 @@ export default function Landing({ onEnter }) {
       {/* ---- Who it's for ---- */}
       <section className="lp-section" id="who">
         <div className="lp-section-head">
-          <span className="lp-kicker">Who it's for</span>
+          <span className="lp-kicker">Who it&apos;s for</span>
           <h2>Built for the people who train the room.</h2>
         </div>
         <div className="lp-audience">
@@ -156,7 +204,7 @@ export default function Landing({ onEnter }) {
             { title: "Corporate trainers", body: "Prove your training worked, and give clients a reason to rebook." },
             { title: "Solo coaches", body: "Give group sessions a professional follow-up without extra prep." },
             { title: "Adult-ed instructors", body: "VHS, IHK, HWK — turn every session into lasting material." },
-            { title: "University lecturers", body: "Individual educators who want their talks to stick." },
+            { title: "University lecturers", body: "See what your students took away, and what to explain again." },
           ].map((a) => (
             <div className="lp-aud-card" key={a.title}>
               <h3>{a.title}</h3>
@@ -171,19 +219,21 @@ export default function Landing({ onEnter }) {
         <div className="lp-section-head">
           <span className="lp-kicker">Pricing</span>
           <h2>Priced against a single rebooking.</h2>
-          <p>Self-serve, no minimum term, cancel anytime. One rebooked training day pays for a year.</p>
+          <p>
+            {free
+              ? "Start free with one session a month. Upgrade whenever you like — no minimum term, cancel anytime."
+              : "Self-serve, no minimum term, cancel anytime. One rebooked training day pays for a year."}
+          </p>
         </div>
+        {!meta && <PlansLoading />}
         <div className="lp-pricing">
-          {[
-            { name: "Trainer", price: "€49", per: "/ month", tagline: "For the working trainer.", features: ["10 sessions / month", "Script, quiz & video", "Shareable participant links", "Client-ready reports"], cta: "Get Trainer", primary: true, badge: "Most popular", plan: "trainer" },
-            { name: "Pro", price: "€99", per: "/ month", tagline: "For high-volume schedules.", features: ["Unlimited sessions", "Everything in Trainer", "Custom branding", "Priority rendering"], cta: "Get Pro", primary: false, plan: "pro" },
-          ].map((p) => (
-            <div className={"lp-price-card" + (p.primary ? " featured" : "")} key={p.name}>
+          {offeredPlans(meta).map((p) => (
+            <div className={"lp-price-card" + (p.primary ? " featured" : "")} key={p.id}>
               {p.badge && <span className="lp-price-badge">{p.badge}</span>}
               <span className="lp-price-name">{p.name}</span>
               <div className="lp-price-amount">
-                {p.price}
-                <span>{p.per}</span>
+                {formatPrice(p.monthly_price_cents)}
+                <span>/ month</span>
               </div>
               <p className="lp-price-tagline">{p.tagline}</p>
               <ul className="lp-checklist">
@@ -195,9 +245,9 @@ export default function Landing({ onEnter }) {
               </ul>
               <button
                 className={"btn btn-block " + (p.primary ? "btn-primary" : "btn-secondary")}
-                onClick={() => onEnter("register", p.plan)}
+                onClick={() => onEnter("register", p.id)}
               >
-                {p.cta}
+                {isFreePlan(p) ? "Start for free" : `Get ${p.name}`}
               </button>
             </div>
           ))}
@@ -207,10 +257,10 @@ export default function Landing({ onEnter }) {
       {/* ---- Final CTA ---- */}
       <section className="lp-cta">
         <h2>Your last session is already forgotten.</h2>
-        <p>The next one doesn't have to be. Start turning your training sessions into lasting material.</p>
+        <p>The next one doesn&apos;t have to be. Start turning your training sessions into lasting material.</p>
         <div className="lp-cta-btns">
-          <button className="btn btn-primary btn-lg" onClick={() => onEnter("register")}>
-            <Icon name="arrow" size={16} /> Create your account
+          <button className="btn btn-primary btn-lg" onClick={start}>
+            <Icon name="arrow" size={16} /> {startLabel}
           </button>
           <button className="btn btn-ghost btn-lg" onClick={() => onEnter("login")}>
             Log in
@@ -251,14 +301,15 @@ function HeroCard() {
           <div>
             <strong>An objection is not a rejection</strong>
             <div className="hero-quote">
-              <Icon name="wave" size={12} /> "It's a request for more information." <em>00:41</em>
+              <Icon name="wave" size={12} /> &quot;It&apos;s a request for more information.&quot; <em>00:41</em>
             </div>
           </div>
         </div>
         <div className="hero-chips">
           <span className="hero-chip"><Icon name="script" size={13} /> Script</span>
           <span className="hero-chip"><Icon name="quiz" size={13} /> Quiz</span>
-          <span className="hero-chip"><Icon name="video" size={13} /> Video</span>
+          <span className="hero-chip"><Icon name="star" size={13} /> Feedback</span>
+          <span className="hero-chip"><Icon name="chart" size={13} /> Analysis</span>
         </div>
       </div>
     </div>
@@ -294,7 +345,39 @@ function MiniQuiz() {
         A request for more information <Icon name="check" size={14} />
       </div>
       <div className="mini-opt">A negotiation tactic</div>
-      <div className="mini-src"><Icon name="wave" size={11} /> grounded at 00:41</div>
+      <div className="mini-src"><Icon name="wave" size={11} /> grounded at 00:41 · 81% of listeners answered correctly</div>
+    </div>
+  );
+}
+
+function MiniFeedback() {
+  return (
+    <div className="mini-card">
+      <div className="mini-q">How was the pace of the session?</div>
+      <div className="bar-list">
+        <BarRow label="Too slow" value={2} max={24} display="8%" />
+        <BarRow label="Just right" value={19} max={24} display="79%" />
+        <BarRow label="Too fast" value={3} max={24} display="13%" />
+      </div>
+      <p className="mini-comment">“The role-play on price objections was the most useful part.”</p>
+      <div className="mini-src"><Icon name="star" size={11} /> 24 anonymous responses · average 4.4 / 5</div>
+    </div>
+  );
+}
+
+const EXAMPLE_SCORES = [
+  { key: "content", label: "Content", value: 8 },
+  { key: "rhetoric", label: "Rhetoric", value: 7 },
+  { key: "structure", label: "Structure", value: 9 },
+];
+
+function MiniAnalysis() {
+  return (
+    <div className="mini-card mini-analysis">
+      <RadarChart axes={EXAMPLE_SCORES} max={10} title="Example lecture scores" />
+      <p className="mini-tip">
+        <Icon name="spark" size={13} /> Next time: name the three steps before the first example.
+      </p>
     </div>
   );
 }

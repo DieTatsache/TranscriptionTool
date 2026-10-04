@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 class ShareTab(StrEnum):
     SCRIPT = "script"
     QUIZ = "quiz"
+    CHAT = "chat"
     TRANSCRIPT = "transcript"
     FEEDBACK = "feedback"
 

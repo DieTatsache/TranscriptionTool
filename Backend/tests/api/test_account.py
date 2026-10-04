@@ -189,6 +189,8 @@ class TestOverview:
                 "name": "Trainer",
                 "monthly_price_cents": 4900,
                 "monthly_session_limit": 10,
+                "max_audio_minutes": None,
+                "purchasable": True,
             },
             "sessions_this_month": 2,
             "remaining_this_month": 8,
@@ -206,13 +208,16 @@ class TestOverview:
             await account.client.get("/api/v1/me/activity", params={"limit": 51})
         ).status_code == 422
 
-    @pytest.mark.parametrize("settings_overrides", [{"default_plan": "pro"}])
+    @pytest.mark.parametrize("account_plan", ["pro"])
     async def test_unlimited_plans_have_no_remaining_count(self, account: Account) -> None:
         usage = (await account.client.get("/api/v1/me/usage")).json()
         assert usage["plan"]["monthly_session_limit"] is None
         assert usage["remaining_this_month"] is None
 
-    async def test_new_accounts_start_empty(self, account: Account, services: Services) -> None:
+    @pytest.mark.parametrize("account_plan", [None])
+    async def test_new_accounts_start_empty_on_the_free_plan(
+        self, account: Account, services: Services
+    ) -> None:
         stats = (await account.client.get("/api/v1/me/stats")).json()
         assert stats == {
             "total_sessions": 0,
@@ -221,5 +226,9 @@ class TestOverview:
             "sessions_this_month": 0,
         }
         user = await db_user(services, account.email)
-        assert user.plan == "trainer"
+        assert user.plan == "free"
+        usage = (await account.client.get("/api/v1/me/usage")).json()
+        assert usage["plan"]["id"] == "free"
+        assert usage["plan"]["max_audio_minutes"] == 60
+        assert usage["remaining_this_month"] == 1
         assert await activity_types(account) == [ActivityType.ACCOUNT_CREATED.value]

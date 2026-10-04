@@ -12,29 +12,57 @@ import socket
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import timedelta
+from typing import Protocol
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from sonora.ai.generation import GenerationError
 from sonora.ai.llm import LLMError
 from sonora.container import Services
 from sonora.db import utcnow
-from sonora.models import Job, JobStatus, JobType, SessionStatus, TrainingSession
+from sonora.models import Job, JobStatus, JobType, TrainingSession
 from sonora.services import auth as auth_service
 from sonora.worker import queue
-from sonora.worker.pipeline import PermanentFailure, process_session
+from sonora.worker.pipeline import (
+    PermanentFailure,
+    analysis_failed,
+    analyze_session,
+    process_session,
+    session_failed,
+)
 
 logger = logging.getLogger(__name__)
 
-GENERIC_FAILURE = "Analysis failed. Please try again later."
+GENERIC_FAILURE = "Processing failed. Please try again later."
 INTERRUPTED_FAILURE = "Processing was interrupted. Please try again."
 MAINTENANCE_INTERVAL_SECONDS = 600
 FINISHED_JOB_RETENTION = timedelta(days=30)
 ORPHAN_AUDIO_GRACE_SECONDS = 6 * 3600  # longer than any upload or job can take
 
 Handler = Callable[[Services, Job], Awaitable[None]]
-HANDLERS: dict[JobType, Handler] = {JobType.PROCESS_SESSION: process_session}
+
+
+class FailureHook(Protocol):
+    """Records a failed attempt on what the job works on (``retrying``: it will run again)."""
+
+    def __call__(
+        self, db: AsyncSession, job: Job, *, retrying: bool, message: str
+    ) -> Awaitable[None]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class JobKind:
+    run: Handler
+    on_failure: FailureHook
+
+
+JOB_KINDS: dict[JobType, JobKind] = {
+    JobType.PROCESS_SESSION: JobKind(process_session, session_failed),
+    JobType.ANALYZE_SESSION: JobKind(analyze_session, analysis_failed),
+}
 
 
 def retry_delay(attempt: int) -> timedelta:
@@ -79,7 +107,7 @@ class Worker:
         logger.info("running job %s (%s, attempt %d)", job.id, job.type, job.attempts)
         heartbeat = asyncio.create_task(self._keep_lease(job))
         try:
-            await HANDLERS[job.type](self.services, job)
+            await JOB_KINDS[job.type].run(self.services, job)
         except PermanentFailure as exc:
             logger.warning("job %s failed permanently: %s", job.id, exc.user_message)
             await self._record_failure(job, exc.user_message, exc.user_message, retry=False)
@@ -118,14 +146,8 @@ class Worker:
                 retry_in=retry_delay(job.attempts) if retry else None,
             )
             if job.session_id is not None:
-                await db.execute(
-                    update(TrainingSession)
-                    .where(TrainingSession.id == job.session_id)
-                    .values(
-                        status=SessionStatus.QUEUED if will_retry else SessionStatus.FAILED,
-                        error_message=None if will_retry else user_message,
-                        updated_at=utcnow(),
-                    )
+                await JOB_KINDS[job.type].on_failure(
+                    db, job, retrying=will_retry, message=user_message
                 )
                 await db.commit()
 
@@ -142,14 +164,10 @@ class Worker:
                 job.locked_by = job.locked_until = None
                 job.finished_at = utcnow()
                 job.last_error = "worker lost during last attempt"
-            if abandoned:
-                await db.execute(
-                    update(TrainingSession)
-                    .where(
-                        TrainingSession.id.in_([j.session_id for j in abandoned if j.session_id])
+                if job.session_id is not None:
+                    await JOB_KINDS[job.type].on_failure(
+                        db, job, retrying=False, message=INTERRUPTED_FAILURE
                     )
-                    .values(status=SessionStatus.FAILED, error_message=INTERRUPTED_FAILURE)
-                )
             await db.execute(
                 delete(Job).where(
                     Job.status.in_([JobStatus.SUCCEEDED, JobStatus.FAILED]),

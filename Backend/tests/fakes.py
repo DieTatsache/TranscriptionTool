@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from sonora.ai.llm import LLMMessage
+from sonora.ai.llm import LLMMessage, Sampling
 from sonora.demo import demo_sessions
 from sonora.transcription import Segment, TranscriptionResult
 
@@ -48,11 +48,41 @@ def quiz_output(count: int) -> dict[str, Any]:
     }
 
 
+def scores_output(content: int = 8, rhetoric: int = 6, structure: int = 7) -> dict[str, Any]:
+    def score(value: int, name: str) -> dict[str, Any]:
+        return {
+            "assessment": f"Your {name} is solid.",
+            "score": value,
+            "tip": f"Polish your {name}.",
+        }
+
+    return {
+        "content": score(content, "content"),
+        "rhetoric": score(rhetoric, "rhetoric"),
+        "structure": score(structure, "structure"),
+    }
+
+
+def topics_output() -> dict[str, Any]:
+    # Demo sample: segments start at 12, 41, 80, 88, ...; the last one ends at 352.
+    return {
+        "topics": [
+            {"title": "What an objection is", "start": "00:12"},
+            {"title": "Acknowledge, ask, reframe", "start": "02:05"},
+            {"title": "Silence and follow-up", "start": "04:10"},
+        ]
+    }
+
+
 def default_output(schema: dict[str, Any]) -> dict[str, Any]:
     """A valid answer for whichever prompt the schema belongs to."""
     properties = schema.get("properties", {})
     if "takeaways" in properties:
         return script_output()
+    if "rhetoric" in properties:
+        return scores_output()
+    if "topics" in properties:
+        return topics_output()
     if "questions" in properties:
         return quiz_output(properties["questions"]["minItems"])
     if "points" in properties:
@@ -68,8 +98,12 @@ Response = dict[str, Any] | Exception
 class FakeLLM:
     """Records calls; replies from a queue of scripted responses, else a valid default."""
 
+    model = "fake-llm:1b"
+
     def __init__(self) -> None:
         self.calls: list[tuple[list[LLMMessage], dict[str, Any]]] = []
+        # Per call: (think, max_tokens, sampling), in call order.
+        self.settings: list[tuple[bool, int | None, Sampling | None]] = []
         self.queue: list[Response] = []
         self.handler: Callable[[list[LLMMessage], dict[str, Any]], Response] | None = None
         # Awaited before every reply, e.g. to change the database mid-generation.
@@ -81,10 +115,12 @@ class FakeLLM:
         messages: Sequence[LLMMessage],
         schema: dict[str, Any],
         *,
-        temperature: float | None = None,
+        think: bool = False,
         max_tokens: int | None = None,
+        sampling: Sampling | None = None,
     ) -> dict[str, Any]:
         self.calls.append((list(messages), schema))
+        self.settings.append((think, max_tokens, sampling))
         if self.before_reply is not None:
             await self.before_reply()
         if self.queue:
@@ -109,6 +145,7 @@ class FakeTranscriber:
 
     def __init__(self) -> None:
         self.calls: list[Path] = []
+        self.limits: list[float] = []  # max_duration_seconds of each call
         self.error: Exception | None = None
         self.language = "en"
 
@@ -116,6 +153,7 @@ class FakeTranscriber:
         self, path: Path, *, language: str | None, max_duration_seconds: float
     ) -> TranscriptionResult:
         self.calls.append(path)
+        self.limits.append(max_duration_seconds)
         if self.error is not None:
             raise self.error
         segments = [

@@ -24,6 +24,8 @@ const paths = {
   link: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
   alert: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 8v4M12 16h.01",
   qr: "M3 3h6v6H3zM3 15h6v6H3zM15 3h6v6h-6zM7 7h.01M7 19h.01M19 7h.01M15 15h2v2h-2zM17 17h2v2h-2zM15 19h.01M19 15h.01",
+  star: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
+  chart: "M18 20V10M12 20V4M6 20v-6",
 };
 
 export default function Icon({ name, size = 18, stroke = 1.8, fill = "none", style }) {

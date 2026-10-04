@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 
 
 class JobType(StrEnum):
-    PROCESS_SESSION = "process_session"
+    PROCESS_SESSION = "process_session"  # transcript, script and quiz
+    ANALYZE_SESSION = "analyze_session"  # lecture analysis (after the session is ready)
 
 
 class JobStatus(StrEnum):

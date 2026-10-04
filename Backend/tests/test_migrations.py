@@ -45,6 +45,33 @@ def test_upgrade_matches_models_and_downgrade_is_clean(tmp_path: Path) -> None:
     assert table_names(url) == {"alembic_version"}
 
 
+def test_starter_accounts_move_to_the_free_plan(tmp_path: Path) -> None:
+    url = f"sqlite+aiosqlite:///{(tmp_path / 'plans.db').as_posix()}"
+    config = alembic_config(url)
+    command.upgrade(config, "0002")
+
+    async def sql(statement: str, **params: str) -> list[str]:
+        engine = create_async_engine(url)
+        async with engine.begin() as connection:
+            result = await connection.execute(text(statement), params)
+            rows = [row[0] for row in result] if result.returns_rows else []
+        await engine.dispose()
+        return rows
+
+    insert = (
+        "INSERT INTO users (id, email, name, bio, password_hash, plan, notify_on_ready,"
+        " created_at, updated_at) VALUES (:id, :email, 'N', '', 'x', :plan, 1,"
+        " '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+    )
+    for plan in ("starter", "trainer"):
+        asyncio.run(sql(insert, id=f"{plan}-id", email=f"{plan}@example.com", plan=plan))
+
+    command.upgrade(config, "head")
+    assert asyncio.run(sql("SELECT plan FROM users ORDER BY email")) == ["free", "trainer"]
+    command.downgrade(config, "0002")
+    assert asyncio.run(sql("SELECT plan FROM users ORDER BY email")) == ["starter", "trainer"]
+
+
 def test_check_detects_drift(tmp_path: Path) -> None:
     url = f"sqlite+aiosqlite:///{(tmp_path / 'drift.db').as_posix()}"
     config = alembic_config(url)

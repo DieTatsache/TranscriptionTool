@@ -5,9 +5,9 @@
 | Component | Responsibility | Scales by |
 |---|---|---|
 | **web** (nginx) | Serves the SPA, proxies `/api` to the API, security headers, access log | stateless |
-| **api** (FastAPI) | Authentication, sessions, uploads, sharing, chat, quiz grading | `API_WORKERS` processes / replicas |
-| **worker** | Transcription (faster-whisper) and recap/quiz generation (LLM) | more worker containers |
-| **PostgreSQL** | All state: users, sign-ins, sessions + content, shares, chat, activity, job queue | vertical |
+| **api** (FastAPI) | Authentication, sessions, uploads, sharing, chat (owner and listeners), quiz grading, listener feedback, plans and (simulated) payments | `API_WORKERS` processes / replicas |
+| **worker** | Transcription (faster-whisper), recap/quiz generation and lecture analysis (LLM) | more worker containers |
+| **PostgreSQL** | All state: users, sign-ins, payments, sessions + content, analyses, shares, quiz attempts, feedback, the owner's chat (listeners' chats aren't stored), activity, job queue | vertical |
 | **Valkey** | Shared rate-limit counters (ephemeral) | — |
 | **Ollama** | Serves the LLM for generation (worker) and chat (api) | GPU memory / `OLLAMA_NUM_PARALLEL` |
 | **Shared audio volume** | Uploaded recordings until they are transcribed | — |
@@ -40,9 +40,12 @@ sequenceDiagram
     Q->>D: save transcript, delete audio
     Q->>L: recap script (JSON schema)
     Q->>L: quiz (JSON schema)
-    Q->>D: save script + quiz, status ready
+    Q->>D: save script + quiz, status ready, queue analysis job
     B->>A: GET /api/v1/sessions/{id}
     A-->>B: script, quiz (no answers), transcript
+    Q->>L: topics + 3 score judgements (same cached prefix)
+    Q->>D: save analysis (scores, topic times, pace)
+    B->>A: GET /api/v1/sessions/{id}/analysis (owner only)
 ```
 
 ## Data model
@@ -52,15 +55,25 @@ erDiagram
     users ||--o{ auth_sessions : "signs in"
     users ||--o{ training_sessions : owns
     users ||--o{ activity_events : logs
+    users ||--o{ payments : "pays"
     training_sessions ||--o{ share_links : "shared via"
     training_sessions ||--o{ chat_messages : has
     training_sessions ||--o{ jobs : "processed by"
+    training_sessions ||--o| session_analyses : "analysed in"
+    training_sessions ||--o{ quiz_attempts : "first attempts"
+    training_sessions ||--o{ feedback_responses : "rated in"
 
     users {
         uuid id
         string email "unique, normalised"
         string password_hash "Argon2id"
+        string plan "none until a checkout succeeds"
+    }
+    payments {
         string plan
+        int amount_cents "from the plan catalog"
+        string status "succeeded|failed"
+        string card_last4 "as reported by the provider"
     }
     auth_sessions {
         string token_hash "SHA-256 of cookie token"
@@ -77,8 +90,22 @@ erDiagram
     }
     share_links {
         string token "256-bit random"
-        json tabs "script|quiz|transcript"
+        json tabs "script|quiz|transcript|feedback"
         datetime expires_at
+    }
+    session_analyses {
+        string status "queued|running|ready|failed"
+        json result "scores, topics, metrics"
+        string model "LLM that wrote it"
+    }
+    quiz_attempts {
+        string participant_key "SHA-256(session, cookie)"
+        json answers "first attempt only"
+    }
+    feedback_responses {
+        string participant_key "SHA-256(session, cookie)"
+        json ratings "question id -> option"
+        text comment "optional"
     }
     jobs {
         string status "pending|running|succeeded|failed"
@@ -135,6 +162,16 @@ lectures go through in one pass, which gives the best quality.
 Otherwise the most relevant passages are selected with BM25, so no embedding model or vector
 database is needed. It works for German and English alike.
 
+**A stateless chat for listeners.** Listeners on a link that shares the chat use the same
+assistant as the owner, but nothing they ask is stored: the page keeps the conversation and
+sends its last six turns with each question (user and assistant turns only, length-limited).
+Each answer costs GPU time that processing and the owner's chat need too. Besides limits per
+listener, IP and lecture, each API process therefore generates at most four listener answers
+at once (`PUBLIC_CHAT_CONCURRENCY`). Further questions get `503 assistant_busy` straight away
+instead of queueing in Ollama ahead of a lecture that is being processed. The prompt keeps the
+assistant to the lecture's subject (see [LLM.md](LLM.md)). The owner can try the chat on their
+own link under their usual chat limits.
+
 **Server-side quiz grading.** Participants never receive the answer key before they answer.
 This also makes it possible to record attempts later ("proof it landed" reports).
 
@@ -143,7 +180,46 @@ database, so hashing it would protect nothing. Storing it lets trainers copy an 
 again. Session tokens are different: they grant account access, so they are hashed.
 
 **Quota from the activity log.** Monthly usage counts `session_created` events, so deleting a
-session doesn't give back processing that was already spent.
+session doesn't give back processing that was already spent (cancelling and re-buying a plan
+doesn't reset it either).
+
+**Plans are granted by the checkout, never chosen at sign-up.** Self-registered accounts start
+on the `none` plan (no uploads). `POST /billing/checkout` charges the price from the server's
+plan catalog through a `PaymentProvider`; only on success does the account get the plan. The
+browser sends the provider's one-time token, never card details, like with real card
+processors. The only provider today is a simulation (`MockPaymentProvider`) that accepts
+Stripe-style test tokens; a real one plugs in behind the same protocol (it will need
+webhooks and idempotency keys, see SECURITY.md).
+
+**Anonymous listeners, counted once.** Share pages with a quiz, feedback form or chat set a
+random 256-bit participant cookie (`HttpOnly`, `SameSite=Strict`, `__Host-`); the chat uses it
+only for its per-listener limits. The server only
+stores `SHA-256(session id + cookie)`, so a browser's answers in one session can't be linked
+to its answers in another, and a unique constraint per session makes "first quiz attempt"
+and "one feedback per listener" hold under races. The signed-in owner is recognised on their
+own link and never counted. Clearing cookies allows another response — acceptable for
+anonymous feedback; the rate limits and a per-session cap bound abuse.
+
+**One feedback form, defined on the server.** `sonora/feedback.py` defines the questions
+(star rating, two 7-point scales, a three-way choice and one optional comment). The share
+page renders what the server sends, the server validates against the same definition and
+the results use the same labels. Responses store the form version.
+
+**Lecture analysis as its own job.** When processing finishes, the session becomes ready and
+an `analyze_session` job is queued in the same commit. Script and quiz are never held back by
+the slower analysis, and a failed analysis has its own status and retry without touching the
+session. Each job type has a failure hook, so an abandoned analysis job can't fail a
+session that is already ready. Sessions from before the feature can request an analysis.
+
+**The model judges, the code measures.** The analysis asks the LLM only for what needs
+judgement: per category an assessment, a 1–10 score and a tip (the median of three
+independent judgements), and the start timestamp of each topic. Topic starts are snapped
+onto real segments; durations, time shares and the speaking pace (words per minute) are
+computed from the transcript. See [LLM.md](LLM.md) for the measurements behind the settings.
+
+**One prompt prefix per lecture.** All tasks on a lecture use the same system prompt and put
+the transcript before the task, so the model server reads the transcript once and serves the
+other tasks from its cache.
 
 ## Frontend
 
@@ -157,4 +233,4 @@ See [Frontend/README.md](../Frontend/README.md).
 Speaker diarization (every segment is labelled "Speaker"), the recap video (the tab is a
 design mock behind `VITE_FEATURE_VIDEO`), web search in the chat (the "web" source), email
 delivery (verification, password reset, "session ready" notifications — the preference is
-stored), billing, and quiz attempt analytics.
+stored) and a real payment provider (recurring billing, renewals, invoices, prorating).

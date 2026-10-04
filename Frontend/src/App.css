@@ -1196,6 +1196,20 @@
     max-width: 88%;
   }
 }
+@media (max-width: 600px) {
+  /* Phones (listeners scanning the QR code): suggestions scroll sideways in one row
+     instead of taking the conversation's height. */
+  .chat-suggest {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .chat-chip {
+    flex: 0 0 78%;
+    text-align: left;
+    line-height: 1.4;
+  }
+}
 
 /* ================================================================
    LOGIN PAGE
@@ -1729,6 +1743,10 @@
 .share-tab-row input[type="checkbox"] {
   display: none;
 }
+.share-tab-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
 .share-tab-row.checked {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -2144,7 +2162,7 @@ html {
 /* Steps */
 .lp-steps {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 20px;
 }
 .lp-step-card {
@@ -2326,7 +2344,9 @@ html {
 /* Pricing */
 .lp-pricing {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* As many columns as plans on sale (from /meta), centred under the heading. */
+  grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
+  justify-content: center;
   gap: 20px;
   align-items: start;
 }
@@ -2769,6 +2789,12 @@ select.field-input {
   font-size: 12.5px;
   color: #f07b76;
 }
+.chat-note {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  text-align: center;
+}
 
 /* Participant page */
 .participant-message {
@@ -3047,7 +3073,7 @@ select.field-input {
 }
 .plan-picker {
   width: 100%;
-  max-width: 680px;
+  max-width: 940px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -3055,11 +3081,9 @@ select.field-input {
 }
 .plan-picker-cards {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* One column per plan on offer (two or three), stacking on narrow screens. */
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 16px;
-}
-@media (max-width: 560px) {
-  .plan-picker-cards { grid-template-columns: 1fr; }
 }
 .plan-picker-card {
   background: var(--bg-elev);
@@ -3270,4 +3294,598 @@ select.field-input {
   font-size: 14px;
   color: var(--text-dim);
   max-width: 340px;
+}
+
+/* ================================================================
+   LISTENER RESULTS, LECTURE ANALYSIS, BILLING (owner views)
+   ================================================================ */
+.tabs {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.banner.info {
+  background: #3987e518;
+  border: 1px solid #3987e544;
+  color: var(--text-dim);
+}
+.banner .btn {
+  flex-shrink: 0;
+}
+
+/* Segmented control (quiz: results / try it) */
+.segmented {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 20px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+}
+.segment {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text-dim);
+}
+.segment:hover {
+  color: var(--text);
+}
+.segment.active {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+/* Bars: thin marks, 4px rounded data end, square at the baseline, value at the tip */
+.bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 40%) 1fr 92px;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 8px;
+  margin: 0 -8px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.bar-row:hover {
+  background: var(--bg-elev-2);
+}
+.bar-row-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13.5px;
+  color: var(--text-dim);
+}
+.bar-row-time {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.bar-track {
+  display: block;
+  height: 12px;
+  background: var(--viz-track);
+  border-radius: 0 4px 4px 0;
+}
+.bar-fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--viz-series);
+  border-radius: 0 4px 4px 0;
+  transition: width 0.4s ease;
+}
+.bar-fill.zero {
+  min-width: 0;
+}
+.bar-row.good .bar-fill {
+  background: var(--good);
+}
+.bar-row.muted .bar-fill {
+  background: var(--viz-muted);
+}
+.bar-row-value {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-align: right;
+  white-space: nowrap;
+}
+.bar-row .q-marker {
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+}
+.q-marker.correct {
+  background: var(--good);
+  color: #06210f;
+}
+.correct-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--good);
+  background: #47c98a1a;
+  white-space: nowrap;
+}
+
+/* Radar chart */
+.radar {
+  position: relative;
+  width: 100%;
+  max-width: 340px;
+  margin: 0 auto;
+}
+.radar svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.radar-ring,
+.radar-spoke {
+  fill: none;
+  stroke: var(--viz-grid);
+  stroke-width: 1;
+}
+.radar-area {
+  fill: color-mix(in srgb, var(--viz-series) 14%, transparent);
+  stroke: var(--viz-series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.radar-dot {
+  fill: var(--viz-series);
+  stroke: var(--bg-elev);
+  stroke-width: 2;
+}
+.radar-dot.active {
+  stroke: var(--text);
+}
+.radar-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+.radar-hit:focus-visible {
+  outline: none;
+  stroke: var(--text-dim);
+  stroke-width: 1.5;
+}
+.radar-label {
+  font-size: 12.5px;
+  fill: var(--text-dim);
+}
+.radar-label-value {
+  font-weight: 650;
+  fill: var(--text);
+}
+.radar-tick {
+  font-size: 9px;
+  fill: var(--text-faint);
+}
+.chart-tooltip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 12px));
+  display: flex;
+  flex-direction: column;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.chart-tooltip strong {
+  font-size: 14px;
+  color: var(--text);
+}
+.chart-tooltip span {
+  color: var(--text-dim);
+}
+
+/* Lecture analysis */
+.analysis-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 16px;
+  align-items: stretch;
+}
+.analysis-radar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+.analysis-radar .radar {
+  max-width: 400px; /* fills the card next to the summary */
+}
+.analysis-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.analysis-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.analysis-facts > div {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--bg);
+}
+.analysis-facts dt {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.analysis-facts dd {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.analysis-facts dd strong {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.analysis-facts .analysis-fact-note {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+.analysis-next h3 {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  margin-bottom: 10px;
+}
+.analysis-next ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.analysis-next li {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+.analysis-next li svg {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.analysis-next-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.analysis-next p {
+  font-size: 13.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.analysis-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.analysis-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.analysis-card h3 {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.analysis-card-hint {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+.analysis-score {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.analysis-score small {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+.analysis-card p {
+  font-size: 13.5px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+.analysis-topics {
+  margin-top: 16px;
+}
+.analysis-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.analysis-section-head h3 {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.analysis-section-head > span {
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+.analysis-state {
+  margin: 0 auto;
+}
+.analysis-state h3 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.analysis-state p {
+  font-size: 13.5px;
+  color: var(--text-dim);
+  margin: 0 auto 20px;
+  max-width: 420px;
+}
+
+/* Quiz and feedback results */
+.results-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 24px;
+  text-align: center;
+}
+.results-empty svg {
+  color: var(--accent);
+}
+.results-empty h3 {
+  font-size: 16px;
+}
+.results-empty p {
+  max-width: 440px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+}
+.results-stats {
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 18px;
+}
+.quiz-result-rate {
+  margin: -6px 0 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.quiz-result-rate strong {
+  color: var(--text);
+}
+.quiz-counted {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 12px;
+  font-size: 12.5px;
+  color: var(--good);
+}
+.feedback-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.feedback-average {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.feedback-average strong {
+  color: var(--text);
+}
+.feedback-comments {
+  margin-top: 24px;
+}
+.feedback-comments ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.feedback-comment {
+  padding: 14px 16px;
+}
+.feedback-comment p {
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.feedback-comment-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+fieldset.feedback-q {
+  border: none;
+  margin: 0;
+  min-width: 0;
+}
+legend.feedback-q-label {
+  padding: 0;
+}
+.feedback-done-icon.muted {
+  background: var(--bg-elev-2);
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+.participant-owner-banner {
+  margin-bottom: 18px;
+}
+
+/* Billing */
+.billing-noplan {
+  margin-bottom: 28px;
+}
+.billing-noplan-text {
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+}
+.billing-row-status.failed {
+  color: #f07b76;
+  background: #e5544e1a;
+}
+.billing-empty-row {
+  padding: 14px 18px;
+}
+.billing-history > .proc-spinner {
+  margin: 14px 18px;
+}
+.plan-card-cta {
+  margin-top: 10px;
+}
+.payment-test-cards {
+  margin: 4px 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.payment-test-cards ul {
+  list-style: none;
+  margin-top: 6px;
+  display: grid;
+  gap: 3px;
+}
+.payment-test-cards li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.payment-test-card {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent-2);
+}
+.payment-test-card:hover {
+  text-decoration: underline;
+}
+.qr-svg {
+  display: block;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+.qr-error {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+@media (max-width: 860px) {
+  .analysis-overview,
+  .analysis-cards {
+    grid-template-columns: 1fr;
+  }
+  .bar-row {
+    grid-template-columns: 1fr 76px;
+  }
+  .bar-row-label {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Shown until /meta has delivered the plan catalog (no client-side prices). */
+.plans-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 0;
+  color: var(--text-dim);
+  font-size: 13.5px;
+}
+
+/* Landing: feedback and analysis previews */
+.mini-card .bar-list {
+  margin: 10px 0 4px;
+}
+.mini-comment {
+  margin: 12px 0 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 13.5px;
+  font-style: italic;
+  color: var(--text-dim);
+}
+.mini-analysis {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.mini-tip {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.mini-tip svg {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Refresh controls of the listener results */
+.results-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.results-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
 }

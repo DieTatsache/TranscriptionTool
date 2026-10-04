@@ -51,6 +51,12 @@ class NotAuthenticated(AppError):
         self.clear_cookie = clear_cookie
 
 
+class PaymentRequired(AppError):
+    status_code = 402
+    code = "payment_declined"
+    message = "The payment was declined."
+
+
 class PermissionDenied(AppError):
     status_code = 403
     code = "forbidden"
@@ -103,6 +109,7 @@ class RequestTooLarge(StarletteHTTPException):
 _HTTP_CODES = {
     400: "bad_request",
     401: "not_authenticated",
+    402: "payment_required",
     403: "forbidden",
     404: "not_found",
     405: "method_not_allowed",

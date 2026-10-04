@@ -2,7 +2,7 @@
 
 Configuration (plain environment variables, independent of the app's SONORA_ settings):
   IT_OLLAMA_URL      default http://localhost:11434
-  IT_OLLAMA_MODEL    default llama3.2:3b
+  IT_OLLAMA_MODEL    default qwen3.5:9b
   IT_WHISPER_MODEL   faster-whisper model name or local model directory (Whisper tests)
   IT_AUDIO_FILE      a short speech recording (Whisper tests)
 
@@ -17,16 +17,17 @@ from pathlib import Path
 
 import pytest
 
+from sonora.ai.analysis import LectureAnalyzer
 from sonora.ai.chat import LectureAssistant
 from sonora.ai.generation import ContentGenerator
-from sonora.ai.llm import OllamaClient
+from sonora.ai.llm import OllamaClient, Sampling
 from sonora.models import ChatSource
 from tests.fakes import SAMPLE
 
 pytestmark = pytest.mark.integration
 
 OLLAMA_URL = os.environ.get("IT_OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("IT_OLLAMA_MODEL", "llama3.2:3b")
+OLLAMA_MODEL = os.environ.get("IT_OLLAMA_MODEL", "qwen3.5:9b")
 WHISPER_MODEL = os.environ.get("IT_WHISPER_MODEL")
 AUDIO_FILE = os.environ.get("IT_AUDIO_FILE")
 CONTEXT = 8192
@@ -39,9 +40,9 @@ async def ollama() -> AsyncIterator[OllamaClient]:
         OLLAMA_MODEL,
         context_tokens=CONTEXT,
         timeout_seconds=900,
-        temperature=0.2,
         keep_alive="10m",
         max_concurrency=1,
+        sampling=Sampling(temperature=0.7, top_p=0.8, top_k=20, presence_penalty=1.5),
     )
     if not await client.is_available():
         await client.aclose()
@@ -67,6 +68,21 @@ async def test_generates_a_valid_script_and_quiz(ollama: OllamaClient) -> None:
     for question in content.quiz:
         assert 3 <= len(question["options"]) <= 5
         assert 0 <= question["correct_option"] < len(question["options"])
+
+
+async def test_analyses_the_lecture(ollama: OllamaClient) -> None:
+    analysis = await LectureAnalyzer(ollama, context_tokens=CONTEXT).analyze(
+        SAMPLE["transcript"], language="en"
+    )
+
+    for category in ("content", "rhetoric", "structure"):
+        assert 1 <= analysis.scores[category]["score"] <= 10
+        assert analysis.scores[category]["assessment"]
+    starts = {int(s["start"]) for s in SAMPLE["transcript"]}
+    assert analysis.topics
+    assert all(t["start_seconds"] in starts for t in analysis.topics)
+    assert analysis.topics[0]["start_seconds"] == int(SAMPLE["transcript"][0]["start"])
+    assert analysis.topics[-1]["end_seconds"] == round(SAMPLE["transcript"][-1]["end"])
 
 
 async def test_answers_a_question_about_the_lecture(ollama: OllamaClient) -> None:

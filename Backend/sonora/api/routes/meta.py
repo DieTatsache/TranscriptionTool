@@ -5,8 +5,9 @@ from sqlalchemy import text
 from sonora import __version__
 from sonora.ai.text import LANGUAGE_NAMES
 from sonora.api.deps import DB, ServicesDep
-from sonora.api.schemas import LanguageOut, MetaOut
+from sonora.api.schemas import LanguageOut, MetaOut, PlanOut
 from sonora.models import ShareTab
+from sonora.plans import offered_plans
 
 router = APIRouter(tags=["meta"])
 
@@ -37,4 +38,6 @@ async def meta(services: ServicesDep) -> MetaOut:
         max_audio_minutes=settings.max_audio_minutes,
         languages=[LanguageOut(code=c, name=n) for c, n in sorted(LANGUAGE_NAMES.items())],
         share_tabs=list(ShareTab),
+        plans=[PlanOut.model_validate(plan) for plan in offered_plans(settings.default_plan)],
+        billing_provider=settings.billing_provider.value,
     )

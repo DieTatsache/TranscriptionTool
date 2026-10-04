@@ -27,7 +27,8 @@ describe("formatting", () => {
   });
 
   it("price", () => {
-    expect(formatPrice(4900).replace(/\s/g, " ")).toBe("49 €");
+    expect(formatPrice(4900)).toBe("€49");
+    expect(formatPrice(990)).toBe("€10"); // whole euros: the catalog has no cent prices
   });
 
   it("processing states", () => {

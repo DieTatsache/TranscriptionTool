@@ -31,7 +31,7 @@ class TestRegister:
         body = response.json()
         assert body["user"]["email"] == "marie@example.com"  # normalised
         assert body["user"]["name"] == "Marie Tanner"  # whitespace collapsed
-        assert body["user"]["plan"] == "trainer"
+        assert body["user"]["plan"] == "free"  # the default; paid plans only through the checkout
         assert len(body["csrf_token"]) >= 40
         assert "password" not in response.text.lower().replace("password_", "")
         cookie = _set_cookie_header(response)

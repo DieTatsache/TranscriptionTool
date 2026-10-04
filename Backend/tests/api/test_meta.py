@@ -38,5 +38,39 @@ async def test_meta_exposes_client_configuration(client: httpx.AsyncClient) -> N
     assert meta["max_upload_mb"] == 50
     assert meta["password_min_length"] == 14
     assert meta["max_audio_minutes"] == 180
-    assert meta["share_tabs"] == ["script", "quiz", "transcript", "feedback"]
+    assert meta["share_tabs"] == ["script", "quiz", "chat", "transcript", "feedback"]
     assert {"code": "de", "name": "German"} in meta["languages"]
+    # The plans on offer: the free tier, then those sold at the prices the checkout charges.
+    assert meta["plans"] == [
+        {
+            "id": "free",
+            "name": "Free",
+            "monthly_price_cents": 0,
+            "monthly_session_limit": 1,
+            "max_audio_minutes": 60,
+            "purchasable": False,
+        },
+        {
+            "id": "trainer",
+            "name": "Trainer",
+            "monthly_price_cents": 4900,
+            "monthly_session_limit": 10,
+            "max_audio_minutes": None,
+            "purchasable": True,
+        },
+        {
+            "id": "pro",
+            "name": "Pro",
+            "monthly_price_cents": 9900,
+            "monthly_session_limit": None,
+            "max_audio_minutes": None,
+            "purchasable": True,
+        },
+    ]
+    assert meta["billing_provider"] == "mock"
+
+
+@pytest.mark.parametrize("settings_overrides", [{"default_plan": "none"}])
+async def test_meta_offers_no_free_plan_without_a_free_tier(client: httpx.AsyncClient) -> None:
+    meta = (await client.get("/api/v1/meta")).json()
+    assert [plan["id"] for plan in meta["plans"]] == ["trainer", "pro"]

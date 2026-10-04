@@ -22,6 +22,8 @@ class ActivityType(StrEnum):
     PROFILE_UPDATED = "profile_updated"
     EMAIL_CHANGED = "email_changed"
     PASSWORD_CHANGED = "password_changed"  # noqa: S105
+    PLAN_ACTIVATED = "plan_activated"
+    PLAN_CANCELED = "plan_canceled"
 
 
 class ActivityEvent(UUIDPrimaryKey, Base):

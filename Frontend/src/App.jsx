@@ -26,6 +26,7 @@ function TrainerApp() {
   const [view, setView] = useState("loading"); // loading | landing | login | app | profile
   const [loginMode, setLoginMode] = useState("login");
   const [loginPlan, setLoginPlan] = useState(null);
+  const [profileTab, setProfileTab] = useState("overview");
   const [user, setUser] = useState(null);
   const [meta, setMeta] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -34,7 +35,7 @@ function TrainerApp() {
     onSessionExpired(() => {
       setUser(null);
       setCsrfToken(null);
-      setNotice("Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.");
+      setNotice("Your session has expired. Please log in again.");
       setView("login");
     });
     api.meta().then(setMeta).catch(() => setMeta(null));
@@ -82,7 +83,7 @@ function TrainerApp() {
       </div>
     );
   }
-  if (view === "landing") return <Landing onEnter={enter} />;
+  if (view === "landing") return <Landing onEnter={enter} meta={meta} />;
   if (view === "login" || !user) {
     return (
       <Login mode={loginMode} onModeChange={setLoginMode} meta={meta} notice={notice} onLogin={handleLogin} plan={loginPlan} />
@@ -97,15 +98,26 @@ function TrainerApp() {
         onBack={() => setView("app")}
         onLogout={handleLogout}
         onDeleted={handleAccountDeleted}
+        initialTab={profileTab}
       />
     );
   }
+  const openProfile = (tab) => {
+    setProfileTab(tab);
+    setView("profile");
+  };
   return (
-    <AppShell user={user} meta={meta} onHome={() => setView("landing")} onProfile={() => setView("profile")} />
+    <AppShell
+      user={user}
+      meta={meta}
+      onHome={() => setView("landing")}
+      onProfile={() => openProfile("overview")}
+      onChoosePlan={() => openProfile("billing")}
+    />
   );
 }
 
-function AppShell({ user, meta, onHome, onProfile }) {
+function AppShell({ user, meta, onHome, onProfile, onChoosePlan }) {
   const [sessions, setSessions] = useState(null); // null while loading
   const [activeId, setActiveId] = useState(null);
   const [recording, setRecording] = useState(false);
@@ -194,7 +206,13 @@ function AppShell({ user, meta, onHome, onProfile }) {
   let content;
   if (recording) {
     content = (
-      <Recorder meta={meta} usage={usage} onUploaded={handleUploaded} onCancel={() => setRecording(false)} />
+      <Recorder
+        meta={meta}
+        usage={usage}
+        onUploaded={handleUploaded}
+        onCancel={() => setRecording(false)}
+        onChoosePlan={onChoosePlan}
+      />
     );
   } else if (sessions === null) {
     content = (
@@ -222,6 +240,7 @@ function AppShell({ user, meta, onHome, onProfile }) {
         onDelete={setPendingDelete}
         onHome={onHome}
         usage={usage}
+        onChoosePlan={onChoosePlan}
       />
 
       <main className="main">
@@ -274,7 +293,7 @@ function EmptyState({ onNew }) {
   );
 }
 
-function Sidebar({ sessions, active, onSelect, onNew, onDelete, onHome, usage }) {
+function Sidebar({ sessions, active, onSelect, onNew, onDelete, onHome, usage, onChoosePlan }) {
   return (
     <aside className="sidebar">
       <button className="brand brand-btn" onClick={onHome} title="Back to home">
@@ -318,7 +337,7 @@ function Sidebar({ sessions, active, onSelect, onNew, onDelete, onHome, usage })
       </nav>
 
       <div className="side-footer">
-        <PlanCard usage={usage} />
+        <PlanCard usage={usage} onChoosePlan={onChoosePlan} />
       </div>
     </aside>
   );
@@ -334,8 +353,21 @@ function SessionMeta({ session }) {
   );
 }
 
-function PlanCard({ usage }) {
+function PlanCard({ usage, onChoosePlan }) {
   if (!usage) return null;
+  if (usage.plan.id === "none") {
+    return (
+      <div className="plan-card">
+        <div className="plan-top">
+          <span className="plan-name">No active plan</span>
+        </div>
+        <span className="plan-note">Choose a plan to record and upload sessions.</span>
+        <button className="btn btn-primary btn-sm btn-block plan-card-cta" onClick={onChoosePlan}>
+          Choose a plan
+        </button>
+      </div>
+    );
+  }
   const limit = usage.plan.monthly_session_limit;
   const used = usage.sessions_this_month;
   return (
@@ -375,7 +407,7 @@ function TopBar({ recording, session, onNew, user, onProfile }) {
         <button className="btn btn-ghost" onClick={onNew}>
           <Icon name="plus" size={16} /> New
         </button>
-        <button className="avatar" onClick={onProfile} title="Profil öffnen" aria-label="Profil öffnen">
+        <button className="avatar" onClick={onProfile} title="Open profile" aria-label="Open profile">
           {initials(user?.name)}
         </button>
       </div>

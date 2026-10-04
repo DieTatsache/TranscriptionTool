@@ -5,16 +5,22 @@ import hashlib
 import hmac
 import re
 import secrets
+import uuid
 
 from argon2 import PasswordHasher as Argon2Hasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
 TOKEN_BYTES = 32  # 256 bits of entropy
 MAX_PASSWORD_LENGTH = 128  # bounds hashing cost per request
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")  # new_token() output
 
 
 def new_token() -> str:
     return secrets.token_urlsafe(TOKEN_BYTES)
+
+
+def is_token(value: str) -> bool:
+    return bool(_TOKEN_RE.fullmatch(value))
 
 
 def token_digest(token: str) -> str:
@@ -23,6 +29,15 @@ def token_digest(token: str) -> str:
 
 def tokens_match(expected: str, provided: str) -> bool:
     return hmac.compare_digest(expected.encode(), provided.encode())
+
+
+def participant_key(session_id: uuid.UUID, participant_token: str) -> str:
+    """Pseudonym of an anonymous listener's browser within one session.
+
+    Derived from the session id, so stored keys of the same browser can't be linked across
+    sessions, and from a 256-bit random cookie, so they can't be guessed or reversed.
+    """
+    return hashlib.sha256(session_id.bytes + participant_token.encode()).hexdigest()
 
 
 class PasswordHasher:

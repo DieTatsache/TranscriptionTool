@@ -1,46 +1,55 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Icon from "../Icon.jsx";
 import { api } from "../api.js";
 import { formatDate, formatDuration, formatPrice, initials } from "../format.js";
+import { useTransient } from "../hooks.js";
+import { findPlan, isFreePlan, offeredPlans, planAudioMinutes, recordingLimitText, sessionLimitText } from "../plans.js";
+import ConfirmDialog from "./ConfirmDialog.jsx";
+import MockPayment from "./MockPayment.jsx";
+import PlanCards from "./PlanCards.jsx";
 
 const ACTIVITY_LABELS = {
-  account_created: "Konto erstellt",
-  session_created: "Session hochgeladen",
-  session_deleted: "Session gelöscht",
-  share_created: "Link geteilt",
-  share_revoked: "Link widerrufen",
-  profile_updated: "Profil aktualisiert",
-  email_changed: "E-Mail-Adresse geändert",
-  password_changed: "Passwort geändert",
+  account_created: "Account created",
+  session_created: "Session uploaded",
+  session_deleted: "Session deleted",
+  share_created: "Link shared",
+  share_revoked: "Link revoked",
+  profile_updated: "Profile updated",
+  email_changed: "Email address changed",
+  password_changed: "Password changed",
+  plan_activated: "Plan activated",
+  plan_canceled: "Plan canceled",
 };
 
-const PLAN_FEATURES = {
-  starter: ["1 Session pro Monat", "Script, Quiz & KI-Chat", "Teilnehmer-Links"],
-  trainer: ["10 Sessions pro Monat", "Script, Quiz & KI-Chat", "Teilnehmer-Links"],
-  pro: ["Unbegrenzte Sessions", "Script, Quiz & KI-Chat", "Teilnehmer-Links"],
-};
+// Included in every plan; the session limit comes from the server's catalog.
+const INCLUDED = ["Script, quiz & AI chat", "Participant links & QR codes", "Lecture analysis & feedback"];
+const PAYMENT_STATUS = { succeeded: "Paid", failed: "Declined" };
 
 function errorMessage(err, minLength = 12) {
   switch (err.code) {
     case "invalid_password":
-      return "Das aktuelle Passwort ist falsch.";
+      return "The current password is incorrect.";
     case "email_taken":
-      return "Diese E-Mail-Adresse wird bereits verwendet.";
+      return "This email address is already in use.";
     case "weak_password":
       return err.message.includes("differ")
-        ? "Das neue Passwort muss sich vom aktuellen unterscheiden."
-        : `Bitte wähle ein sichereres Passwort: mindestens ${minLength} Zeichen, keine gängigen Wörter oder Muster.`;
+        ? "The new password must be different from the current one."
+        : `Please choose a stronger password: at least ${minLength} characters, no common words or patterns.`;
     case "rate_limited":
-      return "Zu viele Versuche. Bitte warte ein paar Minuten.";
+      return "Too many attempts. Please wait a few minutes.";
+    case "no_active_plan":
+      return "You don't have a plan that can be canceled.";
+    case "plan_not_available":
+      return "This plan isn't available.";
     case "validation_error":
-      return "Bitte überprüfe deine Eingaben.";
+      return "Please check your inputs.";
     default:
-      return err.message || "Etwas ist schiefgelaufen.";
+      return err.message || "Something went wrong.";
   }
 }
 
-export default function Profile({ user, meta, onUserChange, onBack, onLogout, onDeleted }) {
-  const [activeTab, setActiveTab] = useState("overview");
+export default function Profile({ user, meta, onUserChange, onBack, onLogout, onDeleted, initialTab = "overview" }) {
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [usage, setUsage] = useState(null);
 
   useEffect(() => {
@@ -51,7 +60,7 @@ export default function Profile({ user, meta, onUserChange, onBack, onLogout, on
     <div className="profile-page">
       <div className="profile-topbar">
         <button className="btn btn-ghost btn-sm" onClick={onBack}>
-          <Icon name="arrow" size={15} style={{ transform: "rotate(180deg)" }} /> Zurück
+          <Icon name="arrow" size={15} style={{ transform: "rotate(180deg)" }} /> Back
         </button>
       </div>
 
@@ -66,9 +75,9 @@ export default function Profile({ user, meta, onUserChange, onBack, onLogout, on
 
           <nav className="profile-nav">
             {[
-              { id: "overview", label: "Übersicht", icon: "script" },
-              { id: "settings", label: "Einstellungen", icon: "spark" },
-              { id: "billing", label: "Plan & Abrechnung", icon: "quiz" },
+              { id: "overview", label: "Overview", icon: "script" },
+              { id: "settings", label: "Settings", icon: "spark" },
+              { id: "billing", label: "Plan & billing", icon: "quiz" },
             ].map((t) => (
               <button
                 key={t.id}
@@ -81,7 +90,7 @@ export default function Profile({ user, meta, onUserChange, onBack, onLogout, on
             ))}
             <div className="profile-nav-divider" />
             <button className="profile-nav-btn profile-nav-logout" onClick={onLogout}>
-              Abmelden
+              Log out
             </button>
           </nav>
         </aside>
@@ -91,7 +100,9 @@ export default function Profile({ user, meta, onUserChange, onBack, onLogout, on
           {activeTab === "settings" && (
             <Settings user={user} meta={meta} onUserChange={onUserChange} onDeleted={onDeleted} />
           )}
-          {activeTab === "billing" && <Billing usage={usage} onLogout={onLogout} />}
+          {activeTab === "billing" && (
+            <Billing meta={meta} usage={usage} onUsageChange={setUsage} onUserChange={onUserChange} />
+          )}
         </main>
       </div>
     </div>
@@ -117,18 +128,18 @@ function Overview() {
 
   return (
     <div className="fade-up">
-      <h2 className="profile-section-title">Meine Übersicht</h2>
+      <h2 className="profile-section-title">Overview</h2>
 
       <div className="profile-stats">
-        <Stat value={stats.total_sessions} label="Sessions gesamt" />
-        <Stat value={stats.quiz_questions} label="Quiz-Fragen generiert" />
-        <Stat value={stats.audio_seconds ? formatDuration(stats.audio_seconds) : "0"} label="Audio transkribiert" />
-        <Stat value={stats.sessions_this_month} label="Diesen Monat" />
+        <Stat value={stats.total_sessions} label="Total sessions" />
+        <Stat value={stats.quiz_questions} label="Quiz questions generated" />
+        <Stat value={stats.audio_seconds ? formatDuration(stats.audio_seconds) : "0"} label="Audio transcribed" />
+        <Stat value={stats.sessions_this_month} label="This month" />
       </div>
 
-      <h3 className="profile-sub-title">Letzte Aktivität</h3>
+      <h3 className="profile-sub-title">Recent activity</h3>
       <div className="activity-list">
-        {activity.length === 0 && <p className="billing-empty">Noch keine Aktivität.</p>}
+        {activity.length === 0 && <p className="billing-empty">No activity yet.</p>}
         {activity.map((a, i) => (
           <div className="activity-item" key={i}>
             <div className="activity-dot" />
@@ -136,7 +147,7 @@ function Overview() {
               <div className="activity-action">{ACTIVITY_LABELS[a.type] ?? a.type}</div>
               {a.detail && <div className="activity-detail">{a.detail}</div>}
             </div>
-            <div className="activity-date">{formatDate(a.created_at, "de-DE")}</div>
+            <div className="activity-date">{formatDate(a.created_at)}</div>
           </div>
         ))}
       </div>
@@ -157,7 +168,7 @@ function Settings({ user, meta, onUserChange, onDeleted }) {
   const minLength = meta?.password_min_length ?? 12;
   return (
     <div className="fade-up">
-      <h2 className="profile-section-title">Einstellungen</h2>
+      <h2 className="profile-section-title">Settings</h2>
       <ProfileForm user={user} onUserChange={onUserChange} />
       <PasswordForm minLength={minLength} />
       <DeleteAccount onDeleted={onDeleted} />
@@ -174,7 +185,7 @@ function ProfileForm({ user, onUserChange }) {
     current_password: "",
   });
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, showSaved] = useTransient();
   const [error, setError] = useState(null);
 
   const emailChanged = form.email.trim().toLowerCase() !== user.email;
@@ -193,8 +204,7 @@ function ProfileForm({ user, onUserChange }) {
       const updated = await api.updateProfile(changes);
       onUserChange(updated);
       setForm((f) => ({ ...f, email: updated.email, current_password: "" }));
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      showSaved();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -205,7 +215,7 @@ function ProfileForm({ user, onUserChange }) {
   return (
     <form className="settings-form" onSubmit={save}>
       <div className="settings-section">
-        <h3 className="settings-section-label">Profil</h3>
+        <h3 className="settings-section-label">Profile</h3>
         <div className="field-group">
           <label className="field-label" htmlFor="profile-name">
             Name
@@ -214,7 +224,7 @@ function ProfileForm({ user, onUserChange }) {
         </div>
         <div className="field-group">
           <label className="field-label" htmlFor="profile-email">
-            E-Mail
+            Email
           </label>
           <input
             id="profile-email"
@@ -230,7 +240,7 @@ function ProfileForm({ user, onUserChange }) {
         {emailChanged && (
           <div className="field-group">
             <label className="field-label" htmlFor="profile-current-password">
-              Aktuelles Passwort (zur Bestätigung)
+              Current password (to confirm)
             </label>
             <input
               id="profile-current-password"
@@ -242,7 +252,7 @@ function ProfileForm({ user, onUserChange }) {
               maxLength={128}
               required
             />
-            <span className="field-hint">Nach der Änderung werden alle anderen Geräte abgemeldet.</span>
+            <span className="field-hint">All your other devices will be logged out after the change.</span>
           </div>
         )}
         <div className="field-group">
@@ -261,17 +271,17 @@ function ProfileForm({ user, onUserChange }) {
       </div>
 
       <div className="settings-section">
-        <h3 className="settings-section-label">Benachrichtigungen</h3>
+        <h3 className="settings-section-label">Notifications</h3>
         <div className="toggle-row">
           <div>
-            <div className="toggle-label">E-Mail-Benachrichtigungen</div>
-            <div className="toggle-sub">Erhalte eine E-Mail, wenn eine Session fertig analysiert wurde.</div>
+            <div className="toggle-label">Email notifications</div>
+            <div className="toggle-sub">Get an email when a session has finished processing.</div>
           </div>
           <button
             type="button"
             role="switch"
             aria-checked={form.notify_on_ready}
-            aria-label="E-Mail-Benachrichtigungen"
+            aria-label="Email notifications"
             className={"toggle-btn" + (form.notify_on_ready ? " on" : "")}
             onClick={() => setForm((f) => ({ ...f, notify_on_ready: !f.notify_on_ready }))}
           >
@@ -289,10 +299,10 @@ function ProfileForm({ user, onUserChange }) {
         <button type="submit" className="btn btn-primary" disabled={saving}>
           {saved ? (
             <>
-              <Icon name="check" size={15} /> Gespeichert
+              <Icon name="check" size={15} /> Saved
             </>
           ) : (
-            "Änderungen speichern"
+            "Save changes"
           )}
         </button>
       </div>
@@ -314,14 +324,14 @@ function PasswordForm({ minLength }) {
     setError(null);
     setMessage(null);
     if (form.next !== form.repeat) {
-      setError("Die neuen Passwörter stimmen nicht überein.");
+      setError("The new passwords don't match.");
       return;
     }
     setBusy(true);
     try {
       await api.changePassword(form.current, form.next);
       setForm(empty);
-      setMessage("Passwort geändert. Alle anderen Geräte wurden abgemeldet.");
+      setMessage("Password changed. All your other devices have been logged out.");
     } catch (err) {
       setError(errorMessage(err, minLength));
     } finally {
@@ -332,23 +342,23 @@ function PasswordForm({ minLength }) {
   return (
     <form className="settings-form" onSubmit={submit}>
       <div className="settings-section">
-        <h3 className="settings-section-label">Passwort ändern</h3>
+        <h3 className="settings-section-label">Change password</h3>
         <div className="field-group">
           <label className="field-label" htmlFor="pw-current">
-            Aktuelles Passwort
+            Current password
           </label>
           <input id="pw-current" className="field-input" type="password" value={form.current} onChange={set("current")} autoComplete="current-password" maxLength={128} required />
         </div>
         <div className="field-group">
           <label className="field-label" htmlFor="pw-new">
-            Neues Passwort
+            New password
           </label>
           <input id="pw-new" className="field-input" type="password" value={form.next} onChange={set("next")} autoComplete="new-password" minLength={minLength} maxLength={128} required />
-          <span className="field-hint">Mindestens {minLength} Zeichen.</span>
+          <span className="field-hint">At least {minLength} characters.</span>
         </div>
         <div className="field-group">
           <label className="field-label" htmlFor="pw-repeat">
-            Neues Passwort wiederholen
+            Repeat new password
           </label>
           <input id="pw-repeat" className="field-input" type="password" value={form.repeat} onChange={set("repeat")} autoComplete="new-password" maxLength={128} required />
         </div>
@@ -360,7 +370,7 @@ function PasswordForm({ minLength }) {
         {message && <div className="login-notice">{message}</div>}
         <div className="settings-actions">
           <button type="submit" className="btn btn-secondary" disabled={busy}>
-            Passwort ändern
+            Change password
           </button>
         </div>
       </div>
@@ -389,22 +399,22 @@ function DeleteAccount({ onDeleted }) {
 
   return (
     <div className="settings-section danger-zone">
-      <h3 className="settings-section-label">Konto löschen</h3>
+      <h3 className="settings-section-label">Delete account</h3>
       <p className="toggle-sub">
-        Löscht dein Konto mit allen Sessions, Transkripten, Quizzen, Chats und Teilnehmer-Links endgültig. Dies kann
-        nicht rückgängig gemacht werden.
+        Permanently deletes your account with all sessions, transcripts, quizzes, chats and participant links. This
+        cannot be undone.
       </p>
       {!open ? (
         <div>
           <button type="button" className="btn btn-danger btn-sm" onClick={() => setOpen(true)}>
-            <Icon name="trash" size={14} /> Konto löschen…
+            <Icon name="trash" size={14} /> Delete account…
           </button>
         </div>
       ) : (
         <form onSubmit={submit} className="danger-confirm">
           <div className="field-group">
             <label className="field-label" htmlFor="delete-password">
-              Passwort zur Bestätigung
+              Confirm with your password
             </label>
             <input
               id="delete-password"
@@ -425,10 +435,10 @@ function DeleteAccount({ onDeleted }) {
           )}
           <div className="modal-actions">
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setOpen(false)} disabled={busy}>
-              Abbrechen
+              Cancel
             </button>
             <button type="submit" className="btn btn-danger btn-sm" disabled={busy || !password}>
-              Endgültig löschen
+              Delete permanently
             </button>
           </div>
         </form>
@@ -437,59 +447,189 @@ function DeleteAccount({ onDeleted }) {
   );
 }
 
-function Billing({ usage, onLogout }) {
+function Billing({ meta, usage, onUsageChange, onUserChange }) {
+  const [payments, setPayments] = useState(null);
+  const [checkoutPlan, setCheckoutPlan] = useState(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const loadPayments = useCallback(() => {
+    api
+      .payments()
+      .then(setPayments)
+      .catch(() => setPayments([]));
+  }, []);
+
+  useEffect(() => {
+    loadPayments();
+  }, [loadPayments]);
+
   if (!usage) return <span className="proc-spinner" />;
   const { plan } = usage;
   const limit = plan.monthly_session_limit;
   const used = usage.sessions_this_month;
+  const freeOffered = Boolean(findPlan(meta, "free"));
+  // Other plans for sale: upgrades cost more than the current plan, switches less.
+  const changes = offeredPlans(meta).filter((p) => p.purchasable && p.id !== plan.id);
+
+  const planChanged = async (updatedUser) => {
+    if (updatedUser) onUserChange(updatedUser);
+    try {
+      onUsageChange(await api.usage());
+    } catch {
+      // reloaded on the next visit
+    }
+    loadPayments();
+  };
+
+  const choose = async (id) => {
+    const chosen = findPlan(meta, id);
+    if (!isFreePlan(chosen)) {
+      setCheckoutPlan(chosen);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const { user: updated } = await api.checkout(chosen.id);
+      await planChanged(updated);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancel = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.cancelPlan();
+      setConfirmCancel(false);
+      await planChanged(updated);
+    } catch (err) {
+      setConfirmCancel(false);
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="fade-up">
-      <h2 className="profile-section-title">Plan & Abrechnung</h2>
+      <h2 className="profile-section-title">Plan & billing</h2>
 
-      <div className="billing-plan-card">
-        <div className="billing-plan-top">
-          <div>
-            <div className="billing-plan-name">{plan.name} Plan</div>
-            <div className="billing-plan-price">
-              {formatPrice(plan.monthly_price_cents)} <span>/ Monat</span>
+      {plan.id === "none" ? (
+        <div className="billing-noplan">
+          <p className="billing-noplan-text">
+            You don&apos;t have an active plan yet. Choose a plan to record and upload sessions.
+          </p>
+          <PlanCards meta={meta} onPick={choose} />
+        </div>
+      ) : (
+        <div className="billing-plan-card">
+          <div className="billing-plan-top">
+            <div>
+              <div className="billing-plan-name">{plan.name} Plan</div>
+              <div className="billing-plan-price">
+                {formatPrice(plan.monthly_price_cents)} <span>/ month</span>
+              </div>
             </div>
+            <span className="plan-badge">Active</span>
           </div>
-          <span className="plan-badge">Aktiv</span>
-        </div>
-        <div className="billing-plan-features">
-          {(PLAN_FEATURES[plan.id] ?? []).map((f) => (
-            <div key={f} className="billing-feature">
-              <Icon name="check" size={14} /> {f}
-            </div>
-          ))}
-        </div>
-        <div className="billing-usage">
-          <div className="billing-usage-label">
-            <span>Sessions diesen Monat</span>
-            <span>{limit != null ? `${used} / ${limit}` : `${used} (unbegrenzt)`}</span>
+          <div className="billing-plan-features">
+            {[sessionLimitText(limit), recordingLimitText(planAudioMinutes(plan, meta)), ...INCLUDED].map((f) => (
+              <div key={f} className="billing-feature">
+                <Icon name="check" size={14} /> {f}
+              </div>
+            ))}
           </div>
-          {limit != null && (
-            <div className="plan-bar">
-              <div className="plan-bar-fill" style={{ width: `${Math.min(100, (used / limit) * 100)}%` }} />
+          <div className="billing-usage">
+            <div className="billing-usage-label">
+              <span>Sessions this month</span>
+              <span>{limit != null ? `${used} / ${limit}` : `${used} (unlimited)`}</span>
             </div>
-          )}
+            {limit != null && (
+              <div className="plan-bar">
+                <div className="plan-bar-fill" style={{ width: `${Math.min(100, (used / limit) * 100)}%` }} />
+              </div>
+            )}
+          </div>
+          <div className="billing-actions">
+            {changes.map((p) => (
+              <button key={p.id} className="btn btn-secondary btn-sm" onClick={() => setCheckoutPlan(p)}>
+                {p.monthly_price_cents > plan.monthly_price_cents ? "Upgrade" : "Switch"} to {p.name}
+              </button>
+            ))}
+            {plan.purchasable && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setConfirmCancel(true)}>
+                Cancel plan
+              </button>
+            )}
+          </div>
+          <p className="field-hint">
+            Simulated payments: no real money is charged. Plan changes and cancellations take effect
+            immediately.
+          </p>
         </div>
-        <div className="billing-actions">
-          <button className="btn btn-secondary btn-sm" disabled title="Online-Abrechnung folgt in Kürze">
-            Auf Pro upgraden
-          </button>
-          <button className="btn btn-ghost btn-sm" disabled title="Online-Abrechnung folgt in Kürze">
-            Plan kündigen
-          </button>
-        </div>
-        <p className="field-hint">Online-Zahlung und Planwechsel werden in Kürze freigeschaltet.</p>
-      </div>
+      )}
 
-      <h3 className="profile-sub-title">Zahlungsverlauf</h3>
+      {error && (
+        <div className="login-error" role="alert">
+          {error}
+        </div>
+      )}
+
+      <h3 className="profile-sub-title">Payment history</h3>
       <div className="billing-history">
-        <p className="billing-empty">Noch keine Zahlungen.</p>
+        {payments === null && <span className="proc-spinner" />}
+        {payments?.length === 0 && <p className="billing-empty billing-empty-row">No payments yet.</p>}
+        {payments?.map((payment) => (
+          <div className="billing-row" key={payment.id}>
+            <span className="billing-row-date">{formatDate(payment.created_at)}</span>
+            <span className="billing-row-desc">
+              {findPlan(meta, payment.plan)?.name ?? payment.plan} plan
+              {payment.card_last4 && ` · ${payment.card_brand ?? "Card"} •••• ${payment.card_last4}`}
+            </span>
+            <span className="billing-row-amount">{formatPrice(payment.amount_cents)}</span>
+            <span className={"billing-row-status" + (payment.status === "failed" ? " failed" : "")}>
+              {PAYMENT_STATUS[payment.status] ?? payment.status}
+            </span>
+          </div>
+        ))}
       </div>
+
+      {checkoutPlan && (
+        <MockPayment
+          plan={checkoutPlan}
+          onSuccess={async (updatedUser) => {
+            setCheckoutPlan(null);
+            await planChanged(updatedUser);
+          }}
+          onCancel={() => {
+            setCheckoutPlan(null);
+            loadPayments(); // declined attempts show up in the history
+          }}
+        />
+      )}
+      {confirmCancel && (
+        <ConfirmDialog
+          title="Cancel plan?"
+          confirmLabel="Cancel plan"
+          cancelLabel="Keep plan"
+          danger
+          busy={busy}
+          onConfirm={cancel}
+          onCancel={() => setConfirmCancel(false)}
+        >
+          Your {plan.name} plan ends immediately.{" "}
+          {freeOffered
+            ? "You're back on the Free plan: one session a month."
+            : "You can't upload new sessions until you choose a plan again."}{" "}
+          Your existing sessions are kept.
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

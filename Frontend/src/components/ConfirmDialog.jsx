@@ -1,6 +1,8 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 
 // Modal confirmation for destructive actions. Escape or a backdrop click cancels.
+// Portalled to <body>: an animated ancestor (transform) would trap the fixed backdrop.
 export default function ConfirmDialog({
   title,
   children,
@@ -19,7 +21,7 @@ export default function ConfirmDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onCancel]);
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={onCancel}>
       <div
         className="modal-card"
@@ -41,6 +43,7 @@ export default function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

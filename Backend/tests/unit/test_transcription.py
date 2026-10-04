@@ -112,6 +112,10 @@ def fake_whisper(monkeypatch: pytest.MonkeyPatch) -> type[FakeWhisperModel]:
     monkeypatch.setitem(
         sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisperModel)
     )
+    # Device detection must not depend on the machine running the tests.
+    monkeypatch.setitem(
+        sys.modules, "ctranslate2", types.SimpleNamespace(get_cuda_device_count=lambda: 0)
+    )
     return FakeWhisperModel
 
 
@@ -131,10 +135,24 @@ class TestFasterWhisperTranscriber:
         assert result.duration_seconds == 10.0
         (model,) = fake_whisper.instances
         assert model.name == "small"
-        assert model.kwargs["device"] == "cpu"  # no GPU in CI / on this machine
+        assert model.kwargs["device"] == "cpu"  # "auto" without a GPU
         assert model.kwargs["compute_type"] == "int8"
         assert model.kwargs["download_root"] == str(tmp_path)
         assert model.transcribe_kwargs == {"language": "de", "beam_size": 3, "vad_filter": True}
+
+    def test_auto_device_uses_a_gpu_when_present(
+        self, tmp_path: Path, fake_whisper: type[FakeWhisperModel], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setitem(
+            sys.modules, "ctranslate2", types.SimpleNamespace(get_cuda_device_count=lambda: 1)
+        )
+        audio = write_wav(tmp_path / "a.wav", 1.0)
+        whisper.FasterWhisperTranscriber("small").transcribe(
+            audio, language=None, max_duration_seconds=60
+        )
+        (model,) = fake_whisper.instances
+        assert model.kwargs["device"] == "cuda"
+        assert model.kwargs["compute_type"] == "float16"
 
     def test_loads_the_model_once(
         self, tmp_path: Path, fake_whisper: type[FakeWhisperModel]

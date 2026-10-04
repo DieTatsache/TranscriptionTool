@@ -18,7 +18,7 @@ export default function Processing({ session, onRetry, onDelete }) {
             <Icon name="alert" size={26} />
           </div>
           <h2>Processing failed</h2>
-          <p className="proc-sub">{session.error_message ?? "Something went wrong while analyzing the recording."}</p>
+          <p className="proc-sub">{session.error_message ?? "Something went wrong while processing the recording."}</p>
           <div className="proc-actions">
             <button className="btn btn-primary" onClick={onRetry}>
               <Icon name="refresh" size={15} /> Try again

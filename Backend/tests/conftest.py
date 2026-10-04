@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import undefer
 
 import sonora.models  # noqa: F401  (registers tables)
@@ -130,17 +130,39 @@ async def register(
     return Account(client, email, password, body["csrf_token"], body["user"]["id"])
 
 
+async def grant_plan(services: Services, user_id: str, plan: str) -> None:
+    """Gives an account a plan directly, as an administrator would (no checkout)."""
+    async with services.sessionmaker() as db:
+        await db.execute(update(User).where(User.id == uuid.UUID(user_id)).values(plan=plan))
+        await db.commit()
+
+
 @pytest.fixture
-async def account(client: httpx.AsyncClient) -> Account:
-    return await register(client)
+def account_plan() -> str | None:
+    """Plan of the ``account`` fixtures (override with parametrize; None = the default plan
+    of new accounts)."""
+    return "trainer"
+
+
+@pytest.fixture
+async def account(
+    client: httpx.AsyncClient, services: Services, account_plan: str | None
+) -> Account:
+    account = await register(client)
+    if account_plan is not None:
+        await grant_plan(services, account.user_id, account_plan)
+    return account
 
 
 @pytest.fixture
 async def other_account(
-    client_factory: Callable[[], httpx.AsyncClient],
+    client_factory: Callable[[], httpx.AsyncClient], services: Services, account_plan: str | None
 ) -> AsyncIterator[Account]:
     async with client_factory() as other:
-        yield await register(other, email="someone.else@example.com", name="Someone Else")
+        account = await register(other, email="someone.else@example.com", name="Someone Else")
+        if account_plan is not None:
+            await grant_plan(services, account.user_id, account_plan)
+        yield account
 
 
 async def upload(

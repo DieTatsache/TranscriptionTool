@@ -1,4 +1,8 @@
 node_modules
 dist
+coverage
 *.local
 .vscode
+# The production build needs no env file; keep local ones (e.g. demo credentials) out of images.
+.env
+.env.*

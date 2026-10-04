@@ -2,7 +2,8 @@
 
 Short transcripts go to the model in one piece. Transcripts that don't fit the context
 window are first condensed chunk by chunk into timestamped notes (map), and the script
-and quiz are written from those notes (reduce).
+and quiz are written from those notes (reduce). ``prepare_material`` is shared with the
+lecture analysis.
 
 Model output is never trusted as-is: it is normalised, bounded in size, timestamps are
 snapped onto real transcript segments, and quiz options are de-duplicated and shuffled.
@@ -22,7 +23,7 @@ from sonora.ai.timestamps import format_timestamp, parse_timestamp, snap_to_segm
 
 logger = logging.getLogger(__name__)
 
-PROMPT_RESERVE_TOKENS = 800  # system prompt + schema overhead
+PROMPT_RESERVE_TOKENS = 1000  # system prompt + task instructions
 OUTPUT_RESERVE_TOKENS = 2500  # room for the longest answer (script)
 MAX_CONDENSE_ROUNDS = 3
 _WS_RE = re.compile(r"\s+")
@@ -161,6 +162,62 @@ def notes_to_lines(raw: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def material_budget(context_tokens: int) -> int:
+    """Tokens the transcript (or its notes) may take in one prompt."""
+    return max(1000, context_tokens - PROMPT_RESERVE_TOKENS - OUTPUT_RESERVE_TOKENS)
+
+
+async def retrying[T](produce: Callable[[], Awaitable[T]], *, attempts: int) -> T:
+    """Retries unusable model output; ``LLMUnavailable`` propagates so the job backs off."""
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return await produce()
+        except (LLMBadResponse, GenerationError) as exc:
+            last_error = exc
+            logger.warning("unusable model output (attempt %d): %s", attempt, exc)
+    raise GenerationError(f"model output unusable after {attempts} attempts") from last_error
+
+
+async def prepare_material(
+    llm: LLMClient,
+    segments: Sequence[Mapping[str, Any]],
+    *,
+    language: str | None,
+    budget: int,
+    attempts: int,
+) -> list[str]:
+    """Transcript lines that fit ``budget``: the whole transcript if possible, else notes."""
+    lines = transcript_lines(segments)
+
+    def fits(candidate: Sequence[str]) -> bool:
+        return estimate_tokens("\n".join(candidate)) <= budget
+
+    def notes_for(chunk: Sequence[str]) -> Callable[[], Awaitable[list[str]]]:
+        async def notes() -> list[str]:
+            raw = await llm.complete_json(
+                prompts.notes_messages(chunk, language), prompts.NOTES_SCHEMA
+            )
+            return notes_to_lines(raw)
+
+        return notes
+
+    for _ in range(MAX_CONDENSE_ROUNDS):
+        if fits(lines):
+            return lines
+        condensed: list[str] = []
+        for chunk in chunk_lines(lines, budget):
+            condensed.extend(await retrying(notes_for(chunk), attempts=attempts))
+        logger.info("condensed transcript from %d to %d lines", len(lines), len(condensed))
+        if len(condensed) >= len(lines):
+            break
+        lines = condensed
+    # Last resort for extreme lengths: keep an even sample of lines.
+    while not fits(lines) and len(lines) > 1:
+        lines = lines[::2]
+    return lines
+
+
 class ContentGenerator:
     def __init__(
         self,
@@ -171,7 +228,7 @@ class ContentGenerator:
         rng: random.Random | None = None,
     ) -> None:
         self._llm = llm
-        self._budget = max(1000, context_tokens - PROMPT_RESERVE_TOKENS - OUTPUT_RESERVE_TOKENS)
+        self._budget = material_budget(context_tokens)
         self._attempts = attempts
         self._rng = rng or random.SystemRandom()
 
@@ -185,7 +242,9 @@ class ContentGenerator:
         if not segments:
             raise GenerationError("empty transcript")
         starts = [float(s["start"]) for s in segments]
-        material = await self._fit_to_budget(transcript_lines(segments), language)
+        material = await prepare_material(
+            self._llm, segments, language=language, budget=self._budget, attempts=self._attempts
+        )
 
         async def script() -> dict[str, Any]:
             raw = await self._llm.complete_json(
@@ -201,49 +260,6 @@ class ContentGenerator:
             )
             return normalize_quiz(raw, starts, limit=size, rng=self._rng)
 
-        script_doc = await self._retrying(script)
-        quiz_doc = await self._retrying(quiz)
+        script_doc = await retrying(script, attempts=self._attempts)
+        quiz_doc = await retrying(quiz, attempts=self._attempts)
         return GeneratedContent(title=script_doc["title"], script=script_doc, quiz=quiz_doc)
-
-    async def _fit_to_budget(self, lines: list[str], language: str | None) -> list[str]:
-        for _ in range(MAX_CONDENSE_ROUNDS):
-            if self._fits(lines):
-                return lines
-            condensed: list[str] = []
-            for chunk in chunk_lines(lines, self._budget):
-                condensed.extend(await self._retrying(self._notes_for(chunk, language)))
-            logger.info("condensed transcript from %d to %d lines", len(lines), len(condensed))
-            if len(condensed) >= len(lines):
-                break
-            lines = condensed
-        # Last resort for extreme lengths: keep an even sample of lines.
-        while not self._fits(lines) and len(lines) > 1:
-            lines = lines[::2]
-        return lines
-
-    def _fits(self, lines: Sequence[str]) -> bool:
-        return estimate_tokens("\n".join(lines)) <= self._budget
-
-    def _notes_for(
-        self, chunk: Sequence[str], language: str | None
-    ) -> Callable[[], Awaitable[list[str]]]:
-        async def notes() -> list[str]:
-            raw = await self._llm.complete_json(
-                prompts.notes_messages(chunk, language), prompts.NOTES_SCHEMA
-            )
-            return notes_to_lines(raw)
-
-        return notes
-
-    async def _retrying[T](self, produce: Callable[[], Awaitable[T]]) -> T:
-        # Bad output is retried here; LLMUnavailable propagates so the job backs off.
-        last_error: Exception | None = None
-        for attempt in range(1, self._attempts + 1):
-            try:
-                return await produce()
-            except (LLMBadResponse, GenerationError) as exc:
-                last_error = exc
-                logger.warning("unusable model output (attempt %d): %s", attempt, exc)
-        raise GenerationError(
-            f"model output unusable after {self._attempts} attempts"
-        ) from last_error

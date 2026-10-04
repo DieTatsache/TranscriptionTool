@@ -56,9 +56,11 @@ async def get_owned(
 
 
 async def _ensure_quota(db: AsyncSession, owner: User) -> None:
+    plan = get_plan(owner.plan)
+    if plan.monthly_session_limit == 0:
+        raise PermissionDenied("Choose a plan to upload recordings.", code="plan_required")
     remaining = await activity.remaining_sessions(db, owner)
     if remaining == 0:
-        plan = get_plan(owner.plan)
         raise PermissionDenied(
             f"You have used all {plan.monthly_session_limit} sessions of your {plan.name} plan "
             "this month.",
@@ -85,8 +87,14 @@ async def create_from_upload(
 
     stored = await services.storage.save_stream(audio, max_bytes=services.settings.max_upload_bytes)
     try:
-        # Lock the owner row so concurrent uploads can't both pass the quota check.
-        await db.execute(select(User.id).where(User.id == owner.id).with_for_update())
+        # Lock the owner row so concurrent uploads can't both pass the quota check, and
+        # reload it: the plan may have changed while the upload was streaming.
+        await db.scalar(
+            select(User)
+            .where(User.id == owner.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         await _ensure_quota(db, owner)
         now = utcnow()
         session = TrainingSession(

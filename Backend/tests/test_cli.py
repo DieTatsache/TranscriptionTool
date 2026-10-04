@@ -9,7 +9,8 @@ import sonora.cli as cli
 from sonora.config import Settings
 from sonora.container import Services, build_services
 from sonora.db import Base
-from sonora.models import TrainingSession, User
+from sonora.models import FeedbackResponse, QuizAttempt, ShareTab, TrainingSession, User
+from sonora.services import shares
 from tests.conftest import make_settings
 from tests.fakes import FakeLLM
 
@@ -72,7 +73,7 @@ class TestCreateUser:
             GOOD_PASSWORD,
         )
         assert code == 0
-        assert "ada@example.com (trainer plan)" in out
+        assert "ada@example.com (plan: Free)" in out
         user = query(settings, select(User))
         assert user.email == "ada@example.com"
         assert user.password_hash.startswith("$argon2id$")
@@ -109,8 +110,8 @@ class TestCreateUser:
 class TestPlansAndDemo:
     def test_set_plan(self, settings: Settings, capsys: Any) -> None:
         run(capsys, "create-user", "--email", "a@b.io", "--name", "A", "--password", GOOD_PASSWORD)
-        assert run(capsys, "set-plan", "--email", "A@b.io", "--plan", "starter")[0] == 0
-        assert query(settings, select(User.plan)) == "starter"
+        assert run(capsys, "set-plan", "--email", "A@b.io", "--plan", "free")[0] == 0
+        assert query(settings, select(User.plan)) == "free"
         code, _, err = run(capsys, "set-plan", "--email", "nobody@b.io", "--plan", "pro")
         assert code == 1 and "No user" in err
         with pytest.raises(SystemExit):
@@ -152,3 +153,98 @@ class TestOperations:
         llm.available = False
         code, _, err = run(capsys, "check-llm")
         assert code == 1 and "not available" in err
+
+
+class TestSeedFeedback:
+    """``seed-feedback`` simulates many anonymous listeners on a share link."""
+
+    @staticmethod
+    def share(settings: Settings, tabs: list[str]) -> str:
+        async def create() -> str:
+            services = build_services(settings)
+            try:
+                user, _ = await cli.seed_demo(services, email="t@example.com", password="x")
+                async with services.sessionmaker() as db:
+                    session = await db.scalar(
+                        select(TrainingSession).where(TrainingSession.owner_id == user.id).limit(1)
+                    )
+                    link = await shares.create(
+                        db, user, session, tabs=[ShareTab(t) for t in tabs], expires_in_days=7
+                    )
+                    return link.token
+            finally:
+                await services.aclose()
+
+        return asyncio.run(create())
+
+    def test_adds_listeners_through_the_listener_rules(
+        self, settings: Settings, capsys: Any
+    ) -> None:
+        token = self.share(settings, ["quiz", "feedback"])
+
+        code, out, _ = run(
+            capsys,
+            "seed-feedback",
+            "--link",
+            f"http://localhost:8080/share/{token}",
+            "--count",
+            "25",
+        )
+
+        assert code == 0, out
+        assert out.startswith('Added 25 listeners to "')
+        assert "25 feedback responses (" in out and "25 quiz attempts." in out
+        # Each simulated listener has a pseudonym of its own, like a browser of its own.
+        assert (
+            query(settings, select(func.count(func.distinct(FeedbackResponse.participant_key))))
+            == 25
+        )
+        assert query(settings, select(func.count()).select_from(QuizAttempt)) == 25
+        comments = query(
+            settings,
+            select(func.count())
+            .select_from(FeedbackResponse)
+            .where(FeedbackResponse.comment.is_not(None)),
+        )
+        assert f"({comments} with a comment)" in out
+
+    def test_only_fills_what_the_link_shares(self, settings: Settings, capsys: Any) -> None:
+        quiz_only = self.share(settings, ["quiz"])
+        assert run(capsys, "seed-feedback", "--link", quiz_only, "--count", "3")[0] == 0
+        assert query(settings, select(func.count()).select_from(FeedbackResponse)) == 0
+        assert query(settings, select(func.count()).select_from(QuizAttempt)) == 3
+
+        script_only = self.share(settings, ["script"])
+        code, _, err = run(capsys, "seed-feedback", "--link", script_only)
+        assert code == 1 and "neither the feedback form nor the quiz" in err
+
+    def test_stops_at_the_sessions_feedback_limit(
+        self, settings: Settings, capsys: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cli.feedback_service, "MAX_RESPONSES_PER_SESSION", 10)
+        token = self.share(settings, ["feedback"])
+
+        code, out, _ = run(capsys, "seed-feedback", "--link", token, "--count", "15")
+
+        assert code == 0
+        assert "10 feedback responses" in out and "limit is reached" in out
+        assert query(settings, select(func.count()).select_from(FeedbackResponse)) == 10
+
+    def test_rejects_unknown_links_and_bad_counts(self, settings: Settings, capsys: Any) -> None:
+        code, _, err = run(capsys, "seed-feedback", "--link", "http://x/share/" + "a" * 43)
+        assert code == 1 and "invalid or has expired" in err
+        with pytest.raises(SystemExit):
+            cli.main(["seed-feedback", "--link", "x", "--count", "0"])
+
+    def test_refuses_production(
+        self, tmp_path: Path, capsys: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        production = make_settings(
+            tmp_path,
+            environment="production",
+            database_url="postgresql+asyncpg://u:p@127.0.0.1:9/x",
+            transcription_backend="faster-whisper",
+        )
+        monkeypatch.setattr(cli, "get_settings", lambda: production)
+        code, _, err = run(capsys, "seed-feedback", "--link", "x")
+        assert code == 1 and "Refusing" in err

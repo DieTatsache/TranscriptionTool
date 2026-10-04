@@ -101,7 +101,6 @@ async def register(
     name: str,
     email: str,
     password: str,
-    plan: str | None = None,
     client: ClientInfo,
 ) -> NewSession:
     if not services.settings.registration_enabled:
@@ -112,22 +111,13 @@ async def register(
         # Registration inherently reveals whether an email is known; it is rate limited per IP.
         raise Conflict("An account with this email already exists.", code="email_taken")
 
-    from sonora.plans import get_plan  # avoid circular at module level
-
-    resolved_plan = services.settings.default_plan
-    if plan:
-        try:
-            get_plan(plan)
-            resolved_plan = plan
-        except ValueError:
-            pass  # unknown plan id — fall back to default
-
     user = User(
         id=uuid.uuid4(),
         name=name,
         email=email,
         password_hash=await services.passwords.hash(password),
-        plan=resolved_plan,
+        # Never chosen by the client: paid plans are only granted by a successful checkout.
+        plan=services.settings.default_plan,
     )
     db.add(user)
     activity.record(db, user.id, ActivityType.ACCOUNT_CREATED)

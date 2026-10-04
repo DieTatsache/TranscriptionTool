@@ -112,10 +112,9 @@ export const api = {
   me: async () => remember(await request("/auth/me", { authProbe: true })),
   login: async (email, password) =>
     remember(await request("/auth/login", { method: "POST", body: { email, password }, authProbe: true })),
-  register: async (name, email, password, plan) =>
-    remember(
-      await request("/auth/register", { method: "POST", body: { name, email, password, plan }, authProbe: true }),
-    ),
+  // New accounts get the server's default plan (usually free); others come from checkout().
+  register: async (name, email, password) =>
+    remember(await request("/auth/register", { method: "POST", body: { name, email, password }, authProbe: true })),
   logout: async () => {
     try {
       await request("/auth/logout", { method: "POST", authProbe: true });
@@ -138,6 +137,13 @@ export const api = {
   stats: () => request("/me/stats"),
   activity: (limit = 10) => request(`/me/activity?limit=${limit}`),
 
+  // Only the payment provider's one-time token is sent, never card details.
+  // The free plan needs no payment token.
+  checkout: (plan, paymentToken = null) =>
+    request("/billing/checkout", { method: "POST", body: { plan, payment_token: paymentToken } }),
+  cancelPlan: () => request("/billing/cancel", { method: "POST" }),
+  payments: () => request("/billing/payments"),
+
   listSessions: () => request("/sessions"),
   uploadRecording,
   getSession: (sessionId, signal) => request(`/sessions/${id(sessionId)}`, { signal }),
@@ -145,6 +151,16 @@ export const api = {
   retrySession: (sessionId) => request(`/sessions/${id(sessionId)}/retry`, { method: "POST" }),
   checkQuiz: (sessionId, answers) =>
     request(`/sessions/${id(sessionId)}/quiz/check`, { method: "POST", body: { answers } }),
+  quizResults: (sessionId, signal) => request(`/sessions/${id(sessionId)}/quiz/results`, { signal }),
+
+  analysis: (sessionId, signal) => request(`/sessions/${id(sessionId)}/analysis`, { signal }),
+  requestAnalysis: (sessionId) => request(`/sessions/${id(sessionId)}/analysis`, { method: "POST" }),
+
+  feedbackSummary: (sessionId, signal) => request(`/sessions/${id(sessionId)}/feedback`, { signal }),
+  feedbackComments: (sessionId, { limit = 20, offset = 0 } = {}) =>
+    request(`/sessions/${id(sessionId)}/feedback/comments?limit=${limit}&offset=${offset}`),
+  deleteFeedback: (sessionId, responseId) =>
+    request(`/sessions/${id(sessionId)}/feedback/${id(responseId)}`, { method: "DELETE" }),
 
   chatHistory: (sessionId) => request(`/sessions/${id(sessionId)}/chat`),
   askChat: (sessionId, message) =>
@@ -162,4 +178,14 @@ export const api = {
   publicShare: (token) => request(`/public/shares/${id(token)}`, { authProbe: true }),
   checkSharedQuiz: (token, answers) =>
     request(`/public/shares/${id(token)}/quiz/check`, { method: "POST", body: { answers }, authProbe: true }),
+  // ratings: question id -> chosen option index
+  submitFeedback: (token, ratings, comment) =>
+    request(`/public/shares/${id(token)}/feedback`, {
+      method: "POST",
+      body: { ratings, comment: comment || null },
+      authProbe: true,
+    }),
+  // Listeners' conversations aren't stored: history is the page's recent [{ role, content }].
+  askSharedChat: (token, message, history) =>
+    request(`/public/shares/${id(token)}/chat`, { method: "POST", body: { message, history }, authProbe: true }),
 };

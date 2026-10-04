@@ -10,6 +10,18 @@
 
 name: sonora
 
+# Values used by more than one service, defined once.
+x-llm-model: &llm-model ${LLM_MODEL:-qwen3.5:9b}
+x-llm-context: &llm-context ${LLM_CONTEXT_TOKENS:-32768}
+x-max-upload-mb: &max-upload-mb ${MAX_UPLOAD_MB:-200}
+x-ollama-image: &ollama-image ${OLLAMA_IMAGE:-ollama/ollama:latest}
+
+# Any other backend setting can be put into .env with its SONORA_ name (docs/DEPLOYMENT.md).
+# The `environment` entries below take precedence, so the security-relevant ones stay pinned.
+x-backend-env-file: &backend-env-file
+  - path: .env
+    required: false
+
 x-backend-env: &backend-env
   SONORA_ENVIRONMENT: production
   SONORA_DATABASE_URL: postgresql+asyncpg://sonora:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/sonora
@@ -18,16 +30,16 @@ x-backend-env: &backend-env
   SONORA_COOKIE_SECURE: "true"
   SONORA_HSTS_ENABLED: ${HSTS_ENABLED:-false}
   SONORA_REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
-  SONORA_DEFAULT_PLAN: ${DEFAULT_PLAN:-trainer}
+  SONORA_DEFAULT_PLAN: ${DEFAULT_PLAN:-free}
   SONORA_RATE_LIMIT_STORAGE_URL: async+valkey://valkey:6379/0
   SONORA_STORAGE_DIR: /data
-  SONORA_MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
+  SONORA_MAX_UPLOAD_MB: *max-upload-mb
   SONORA_MAX_AUDIO_MINUTES: ${MAX_AUDIO_MINUTES:-180}
   SONORA_WORKER_EMBEDDED: "false"
   SONORA_LOG_JSON: "true"
   SONORA_LLM_BASE_URL: http://ollama:11434
-  SONORA_LLM_MODEL: ${LLM_MODEL:-gemma3:12b}
-  SONORA_LLM_CONTEXT_TOKENS: ${LLM_CONTEXT_TOKENS:-32768}
+  SONORA_LLM_MODEL: *llm-model
+  SONORA_LLM_CONTEXT_TOKENS: *llm-context
   SONORA_LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-900}
   SONORA_TRANSCRIPTION_BACKEND: faster-whisper
   SONORA_WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
@@ -74,9 +86,9 @@ services:
     networks: [internal]
 
   ollama:
-    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    image: *ollama-image
     environment:
-      OLLAMA_CONTEXT_LENGTH: ${LLM_CONTEXT_TOKENS:-32768}
+      OLLAMA_CONTEXT_LENGTH: *llm-context
       OLLAMA_KEEP_ALIVE: 24h
       OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-2}
     volumes: [ollama-models:/root/.ollama]
@@ -91,10 +103,10 @@ services:
 
   ollama-pull:
     # One-shot: downloads the configured model (no-op once it is present).
-    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    image: *ollama-image
     environment:
       OLLAMA_HOST: http://ollama:11434
-    command: ["pull", "${LLM_MODEL:-gemma3:12b}"]
+    command: ["pull", *llm-model]
     depends_on:
       ollama: { condition: service_healthy }
     restart: "no"
@@ -104,6 +116,7 @@ services:
     build: { context: ./Backend, target: api }
     image: sonora-api:latest
     command: ["alembic", "upgrade", "head"]
+    env_file: *backend-env-file
     environment: *backend-env
     depends_on:
       db: { condition: service_healthy }
@@ -114,6 +127,7 @@ services:
   api:
     build: { context: ./Backend, target: api }
     image: sonora-api:latest
+    env_file: *backend-env-file
     environment:
       <<: *backend-env
       WEB_CONCURRENCY: ${API_WORKERS:-2}
@@ -135,6 +149,7 @@ services:
       args:
         WITH_CUDA: ${WITH_CUDA:-false}
     image: sonora-worker:latest
+    env_file: *backend-env-file
     environment: *backend-env
     volumes:
       - audio-data:/data
@@ -151,10 +166,12 @@ services:
     build: ./Frontend
     image: sonora-web:latest
     environment:
-      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
+      MAX_UPLOAD_MB: *max-upload-mb
       TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1/32}
     ports: ["${HTTP_PORT:-8080}:8080"]
-    tmpfs: [/tmp, /etc/nginx/conf.d]
+    # The entrypoint renders the nginx config into conf.d as the image's user (uid 101); a
+    # root-owned tmpfs would leave nginx without any server block.
+    tmpfs: [/tmp, "/etc/nginx/conf.d:uid=101,gid=101,mode=0755"]
     depends_on:
       api: { condition: service_healthy }
     <<: *hardening

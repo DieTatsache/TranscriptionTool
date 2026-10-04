@@ -2,7 +2,9 @@ import { useState } from "react";
 import Icon from "../Icon.jsx";
 import { api } from "../api.js";
 import { DEMO_LOGIN } from "../features.js";
+import { findPlan, isFreePlan } from "../plans.js";
 import MockPayment from "./MockPayment.jsx";
+import PlanCards from "./PlanCards.jsx";
 
 // Error messages for the API error codes this screen can receive.
 function errorMessage(err, minLength) {
@@ -43,21 +45,23 @@ export default function Login({ mode, onModeChange, meta, notice, onLogin, plan:
 
   // Step 1 when registering: pick a plan first
   if (registering && !selectedPlan) {
-    return <PlanPicker onPick={setSelectedPlan} onBack={() => onModeChange("login")} />;
+    return <PlanPicker meta={meta} onPick={setSelectedPlan} onBack={() => onModeChange("login")} />;
   }
 
   const submit = async (credentials) => {
     setError(null);
     setLoading(true);
     try {
-      const user = mode === "register"
-        ? await api.register(name, credentials.email, credentials.password, selectedPlan)
-        : await api.login(credentials.email, credentials.password);
-      if (mode === "register" && (selectedPlan === "trainer" || selectedPlan === "pro")) {
-        setPendingUser({ user, plan: selectedPlan });
-      } else {
-        onLogin(user);
+      if (!registering) {
+        onLogin(await api.login(credentials.email, credentials.password));
+        return;
       }
+      // The account starts on the server's default plan (the free one, if offered); a paid
+      // plan is granted only by the checkout.
+      const user = await api.register(name, credentials.email, credentials.password);
+      const plan = findPlan(meta, selectedPlan);
+      if (plan && !isFreePlan(plan)) setPendingUser({ user, plan });
+      else onLogin(user);
     } catch (err) {
       setError(errorMessage(err, minLength));
       setLoading(false);
@@ -74,8 +78,9 @@ export default function Login({ mode, onModeChange, meta, notice, onLogin, plan:
       {pendingUser && (
         <MockPayment
           plan={pendingUser.plan}
-          onSuccess={() => onLogin(pendingUser.user)}
-          onCancel={() => { setPendingUser(null); setLoading(false); }}
+          onSuccess={(user) => onLogin(user ?? pendingUser.user)}
+          // Already signed in: continue without a plan (it can be bought in the profile).
+          onCancel={() => onLogin(pendingUser.user)}
         />
       )}
     <div className="login-page">
@@ -182,7 +187,7 @@ export default function Login({ mode, onModeChange, meta, notice, onLogin, plan:
           <p className="login-switch">
             {registering ? "Already have an account?" : "Don't have an account?"}{" "}
             <button type="button" onClick={() => switchMode(registering ? "login" : "register")}>
-              {registering ? "Log in" : "Create one for free"}
+              {registering ? "Log in" : "Create an account"}
             </button>
           </p>
         )}
@@ -214,29 +219,7 @@ export default function Login({ mode, onModeChange, meta, notice, onLogin, plan:
   );
 }
 
-const PLAN_OPTIONS = [
-  {
-    id: "trainer",
-    name: "Trainer",
-    price: "€49",
-    per: "/ month",
-    tagline: "For the working trainer.",
-    features: ["10 sessions / month", "Script, quiz & video", "Shareable participant links", "Client-ready reports"],
-    primary: true,
-    badge: "Most popular",
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    price: "€99",
-    per: "/ month",
-    tagline: "For high-volume schedules.",
-    features: ["Unlimited sessions", "Everything in Trainer", "Custom branding", "Priority rendering"],
-    primary: false,
-  },
-];
-
-function PlanPicker({ onPick, onBack }) {
+function PlanPicker({ meta, onPick, onBack }) {
   return (
     <div className="login-page plan-picker-page">
       <div className="plan-picker fade-up">
@@ -253,31 +236,7 @@ function PlanPicker({ onPick, onBack }) {
         <h1 className="login-title">Choose your plan</h1>
         <p className="login-sub">Pick the plan that fits your schedule. You can change it anytime.</p>
 
-        <div className="plan-picker-cards">
-          {PLAN_OPTIONS.map((p) => (
-            <div key={p.id} className={"plan-picker-card" + (p.primary ? " featured" : "")}>
-              {p.badge && <span className="lp-price-badge">{p.badge}</span>}
-              <div className="plan-picker-top">
-                <span className="plan-picker-name">{p.name}</span>
-                <div className="plan-picker-price">
-                  {p.price} <span>{p.per}</span>
-                </div>
-              </div>
-              <p className="plan-picker-tagline">{p.tagline}</p>
-              <ul className="lp-checklist">
-                {p.features.map((f) => (
-                  <li key={f}><Icon name="check" size={14} /> {f}</li>
-                ))}
-              </ul>
-              <button
-                className={"btn btn-block " + (p.primary ? "btn-primary" : "btn-secondary")}
-                onClick={() => onPick(p.id)}
-              >
-                Get {p.name}
-              </button>
-            </div>
-          ))}
-        </div>
+        <PlanCards meta={meta} onPick={onPick} />
 
         <p className="login-switch">
           Already have an account?{" "}

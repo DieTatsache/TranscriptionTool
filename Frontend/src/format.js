@@ -42,8 +42,14 @@ export function initials(name) {
   return (first + last).toUpperCase();
 }
 
+// 3 of 7 -> 43 (whole percent; 0 when there is nothing to divide by)
+export function percent(count, total) {
+  return total > 0 ? Math.round((count / total) * 100) : 0;
+}
+
+// 4900 -> "€49" (English formatting of the euro amounts the server charges)
 export function formatPrice(cents) {
-  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(
+  return new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(
     cents / 100,
   );
 }

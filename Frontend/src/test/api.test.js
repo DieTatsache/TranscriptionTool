@@ -60,6 +60,83 @@ describe("CSRF protection", () => {
   });
 });
 
+describe("new endpoints", () => {
+  it("registration sends no plan and checkout sends only the provider token", async () => {
+    const fetchMock = mockFetch(
+      jsonResponse(201, { user: { plan: "none" }, csrf_token: "csrf-1" }),
+      jsonResponse(200, { user: { plan: "pro" }, payment: {} }),
+    );
+    await api.register("Ada", "ada@example.com", "pw");
+    await api.checkout("pro", "tok_visa");
+
+    const [registerCall, checkoutCall] = fetchMock.mock.calls;
+    expect(JSON.parse(registerCall[1].body)).toEqual({ name: "Ada", email: "ada@example.com", password: "pw" });
+    expect(checkoutCall[0]).toBe("/api/v1/billing/checkout");
+    expect(checkoutCall[1].headers["X-CSRF-Token"]).toBe("csrf-1");
+    expect(JSON.parse(checkoutCall[1].body)).toEqual({ plan: "pro", payment_token: "tok_visa" });
+  });
+
+  it.each([
+    ["cancelPlan", [], "POST", "/api/v1/billing/cancel"],
+    ["payments", [], "GET", "/api/v1/billing/payments"],
+    ["quizResults", ["s/1"], "GET", "/api/v1/sessions/s%2F1/quiz/results"],
+    ["analysis", ["s1"], "GET", "/api/v1/sessions/s1/analysis"],
+    ["requestAnalysis", ["s1"], "POST", "/api/v1/sessions/s1/analysis"],
+    ["feedbackSummary", ["s1"], "GET", "/api/v1/sessions/s1/feedback"],
+    ["feedbackComments", ["s1"], "GET", "/api/v1/sessions/s1/feedback/comments?limit=20&offset=0"],
+    ["deleteFeedback", ["s1", "r/1"], "DELETE", "/api/v1/sessions/s1/feedback/r%2F1"],
+  ])("%s calls %s %s", async (name, args, method, url) => {
+    setCsrfToken("csrf-2");
+    const fetchMock = mockFetch(jsonResponse(200, {}));
+    await api[name](...args);
+    const [calledUrl, init] = fetchMock.mock.calls[0];
+    expect(calledUrl).toBe(url);
+    expect(init.method).toBe(method);
+    expect(init.headers["X-CSRF-Token"]).toBe(method === "GET" ? undefined : "csrf-2");
+  });
+
+  it("pages through comments", async () => {
+    const fetchMock = mockFetch(jsonResponse(200, []));
+    await api.feedbackComments("s1", { limit: 5, offset: 10 });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/sessions/s1/feedback/comments?limit=5&offset=10");
+  });
+
+  it("submits listener feedback without treating a 401 as an expired session", async () => {
+    const expired = vi.fn();
+    onSessionExpired(expired);
+    const fetchMock = mockFetch(jsonResponse(204), jsonResponse(401, { error: { code: "x", message: "y" } }));
+
+    await api.submitFeedback("tok", { overall: 4 }, "");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ ratings: { overall: 4 }, comment: null });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/public/shares/tok/feedback");
+
+    await expect(api.submitFeedback("tok", {}, "Nice")).rejects.toBeInstanceOf(ApiError);
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it("sends a listener's question with the recent turns of their conversation", async () => {
+    const expired = vi.fn();
+    onSessionExpired(expired);
+    const fetchMock = mockFetch(
+      jsonResponse(200, { answer: "Yes.", source: "lesson", cite_seconds: 12 }),
+      jsonResponse(401, { error: { code: "x", message: "y" } }),
+    );
+    const history = [
+      { role: "user", content: "Q1" },
+      { role: "assistant", content: "A1" },
+    ];
+
+    expect(await api.askSharedChat("t/1", "Q2", history)).toEqual({ answer: "Yes.", source: "lesson", cite_seconds: 12 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/v1/public/shares/t%2F1/chat");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ message: "Q2", history });
+
+    await expect(api.askSharedChat("t", "Q", [])).rejects.toBeInstanceOf(ApiError);
+    expect(expired).not.toHaveBeenCalled(); // listeners have no session to expire
+  });
+});
+
 describe("errors", () => {
   it("exposes the API error code and message", async () => {
     mockFetch(jsonResponse(409, { error: { code: "email_taken", message: "Taken." } }));

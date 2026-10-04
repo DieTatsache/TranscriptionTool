@@ -28,6 +28,11 @@ class TranscriptionBackend(StrEnum):
     FAKE = "fake"
 
 
+class BillingProvider(StrEnum):
+    # Simulated card payments (test cards only); no real money moves.
+    MOCK = "mock"
+
+
 # Comma-separated in the environment, e.g. SONORA_ALLOWED_ORIGINS=https://a.example,https://b.example
 CsvList = Annotated[list[str], NoDecode]
 
@@ -63,7 +68,10 @@ class Settings(BaseSettings):
     # --- Accounts ---------------------------------------------------------------------
     registration_enabled: bool = True
     password_min_length: int = Field(default=12, ge=8, le=64)
-    default_plan: str = "trainer"
+    # Plan of self-registered accounts: "free" (one session a month, offered on the pricing
+    # page) or "none" (no uploads until a plan is bought).
+    default_plan: str = "free"
+    billing_provider: BillingProvider = BillingProvider.MOCK
     argon2_time_cost: int = Field(default=3, ge=1)
     argon2_memory_cost_kib: int = Field(default=64 * 1024, ge=8)
     argon2_parallelism: int = Field(default=4, ge=1)
@@ -84,14 +92,22 @@ class Settings(BaseSettings):
 
     # --- LLM (Ollama) -----------------------------------------------------------------
     llm_base_url: str = "http://localhost:11434"
-    llm_model: str = "llama3.2:3b"
-    llm_context_tokens: int = Field(default=8192, ge=2048)
+    llm_model: str = "qwen3.5:9b"
+    # The same value on every call (a change makes Ollama reload the model).
+    llm_context_tokens: int = Field(default=16384, ge=2048)
     llm_timeout_seconds: float = Field(default=600, gt=0)
-    llm_temperature: float = Field(default=0.2, ge=0, le=2)
-    llm_keep_alive: str = "10m"
+    # How long Ollama keeps the model loaded after a call: a Go duration ("10m", "24h",
+    # negative = forever) or whole seconds. Unset: the server's OLLAMA_KEEP_ALIVE applies.
+    llm_keep_alive: str | None = Field(
+        default=None, pattern=r"^-?(\d+|(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+)$"
+    )
     llm_max_concurrency: int = Field(default=2, ge=1)
-    # Only sent when set; needed to switch off "thinking" on reasoning models.
-    llm_think: bool | None = None
+    # Sampling for answers without reasoning ("thinking", which no task uses: see
+    # docs/LLM.md); defaults follow Qwen3.5's recommendation. Tasks may adjust it.
+    llm_temperature: float = Field(default=0.7, ge=0, le=2)
+    llm_top_p: float = Field(default=0.8, gt=0, le=1)
+    llm_top_k: int = Field(default=20, ge=1)
+    llm_presence_penalty: float = Field(default=1.5, ge=0, le=2)
 
     # --- Transcription ----------------------------------------------------------------
     transcription_backend: TranscriptionBackend = TranscriptionBackend.FASTER_WHISPER
@@ -128,9 +144,9 @@ class Settings(BaseSettings):
         get_plan(value)
         return value
 
-    @field_validator("whisper_language")
+    @field_validator("whisper_language", "llm_keep_alive", mode="before")
     @classmethod
-    def _empty_language_is_auto(cls, value: str | None) -> str | None:
+    def _empty_means_unset(cls, value: Any) -> Any:
         return value or None
 
     @model_validator(mode="after")
@@ -148,6 +164,12 @@ class Settings(BaseSettings):
             problems.append("SONORA_TRANSCRIPTION_BACKEND=fake is for development only")
         if self.database_url.get_secret_value().startswith("sqlite"):
             problems.append("SONORA_DATABASE_URL must point to PostgreSQL")
+        if not self.rate_limit_enabled:
+            # Would also lift the sign-in lockout (it is enforced by the rate limiter).
+            problems.append("SONORA_RATE_LIMIT_ENABLED must be true")
+        if self.database_echo:
+            # Logs statements with their parameters: emails, hashes, transcripts.
+            problems.append("SONORA_DATABASE_ECHO must be false")
         if problems:
             raise ValueError("Unsafe production configuration: " + "; ".join(problems))
         return self
@@ -164,6 +186,11 @@ class Settings(BaseSettings):
     def session_cookie_name(self) -> str:
         # __Host- binds the cookie to this exact host (requires Secure, Path=/, no Domain).
         return "__Host-sonora_session" if self.cookie_secure else "sonora_session"
+
+    @property
+    def participant_cookie_name(self) -> str:
+        # Anonymous listener id on share pages (one quiz attempt / feedback per browser).
+        return "__Host-sonora_participant" if self.cookie_secure else "sonora_participant"
 
     @property
     def max_upload_bytes(self) -> int:

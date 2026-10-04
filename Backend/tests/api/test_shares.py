@@ -159,11 +159,16 @@ class TestParticipantSide:
         await account.client.delete(f"/api/v1/sessions/{session_id}")
         assert (await client.get(f"/api/v1/public/shares/{token}")).status_code == 404
 
-    async def test_public_reads_are_rate_limited(
+    async def test_public_reads_are_rate_limited_per_ip(
         self, account: Account, session_id: str, client_factory: Any
     ) -> None:
         token = (await share(account, session_id, tabs=["script"])).json()["token"]
-        async with client_factory() as participant:
-            for _ in range(60):
-                assert (await participant.get(f"/api/v1/public/shares/{token}")).status_code == 200
-            assert (await participant.get(f"/api/v1/public/shares/{token}")).status_code == 429
+        # Sized for a lecture hall whose listeners share one address (NAT): every request
+        # comes from a different browser here, all with the same IP.
+        for _ in range(600):
+            async with client_factory() as listener:
+                assert (await listener.get(f"/api/v1/public/shares/{token}")).status_code == 200
+        async with client_factory() as listener:
+            limited = await listener.get(f"/api/v1/public/shares/{token}")
+        assert limited.status_code == 429
+        assert int(limited.headers["retry-after"]) > 0

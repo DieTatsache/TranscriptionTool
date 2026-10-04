@@ -16,7 +16,7 @@ from sonora.models import AuthSession, Job, JobStatus, SessionStatus, TrainingSe
 from sonora.transcription import AudioTooLong, NoSpeechDetected, TranscriptionError
 from sonora.worker import queue
 from sonora.worker.runner import GENERIC_FAILURE, INTERRUPTED_FAILURE, Worker, retry_delay
-from tests.conftest import Account, db_session, upload
+from tests.conftest import Account, db_session, grant_plan, upload
 from tests.fakes import FakeLLM, FakeTranscriber
 
 RunWorker = Callable[[], Awaitable[int]]
@@ -69,6 +69,31 @@ async def test_permanent_transcription_failures_are_not_retried(
     assert session.error_message == message
     assert [j.status for j in await jobs(services)] == [JobStatus.FAILED]
     assert session.audio_key is not None  # kept so the owner can retry
+
+
+@pytest.mark.parametrize("account_plan", ["free"])
+async def test_the_free_plan_limits_the_recording_length(
+    account: Account,
+    services: Services,
+    transcriber: FakeTranscriber,
+    run_worker: RunWorker,
+) -> None:
+    first = await queued_session(account)
+    await run_worker()
+    assert transcriber.limits == [60 * 60]  # the plan's 60 minutes, not the server's 180
+    assert (await db_session(services, first)).status is SessionStatus.READY
+
+    await grant_plan(services, account.user_id, "trainer")  # quota for a second upload
+    second = await queued_session(account)
+    await grant_plan(services, account.user_id, "free")
+    transcriber.error = AudioTooLong("x")
+    await run_worker()
+    session = await db_session(services, second)
+    assert session.status is SessionStatus.FAILED
+    assert (
+        session.error_message
+        == "The recording is longer than the 60-minute limit of the Free plan."
+    )
 
 
 async def test_missing_audio_file_fails_permanently(
@@ -177,7 +202,11 @@ async def test_session_deleted_after_its_job_was_claimed(
 
 
 async def test_session_deleted_during_generation(
-    account: Account, services: Services, llm: FakeLLM, run_worker: RunWorker
+    account: Account,
+    services: Services,
+    llm: FakeLLM,
+    run_worker: RunWorker,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     session_id = await queued_session(account)
 
@@ -187,10 +216,11 @@ async def test_session_deleted_during_generation(
 
     llm.before_reply = owner_deletes_session
 
-    assert await run_worker() == 1  # no crash when the results can't be saved
+    assert await run_worker() == 1
 
     assert await db_session(services, session_id) is None
     assert await jobs(services) == []
+    assert "crashed" not in caplog.text  # stopped quietly, not via the error path
 
 
 def test_retry_delay_grows_and_is_capped() -> None:
@@ -302,7 +332,7 @@ class TestMaintenance:
         await queued_session(account)
         await run_worker()
         await Worker(services).maintenance()
-        assert len(await jobs(services)) == 1  # recent: kept
+        assert len(await jobs(services)) == 2  # recent processing + analysis jobs: kept
         async with services.sessionmaker() as db:
             await db.execute(update(Job).values(finished_at=utcnow() - timedelta(days=31)))
             await db.commit()

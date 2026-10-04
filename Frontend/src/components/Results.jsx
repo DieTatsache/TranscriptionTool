@@ -1,17 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import QRCode from "qrcode";
 import Icon from "../Icon.jsx";
 import { api } from "../api.js";
 import { FEATURES } from "../features.js";
 import { boldSegments, copyToClipboard, formatDate, formatTimestamp } from "../format.js";
+import { useTransient } from "../hooks.js";
+import AnalysisView from "./AnalysisView.jsx";
+import FeedbackResults from "./FeedbackResults.jsx";
+import QrCode from "./QrCode.jsx";
+import QuizResults from "./QuizResults.jsx";
 
+// Owner tabs. Feedback and Analysis are never part of share links.
 const TABS = [
   { id: "script", label: "Script", icon: "script" },
   { id: "quiz", label: "Quiz", icon: "quiz" },
   { id: "video", label: "Video", icon: "video", feature: "video" },
   { id: "chat", label: "Chatbot", icon: "chat" },
   { id: "transcript", label: "Transcript", icon: "transcript" },
+  { id: "feedback", label: "Feedback", icon: "star" },
+  { id: "analysis", label: "Analysis", icon: "chart" },
 ];
 const VISIBLE_TABS = TABS.filter((t) => !t.feature || FEATURES[t.feature]);
 
@@ -74,16 +81,13 @@ export default function Results({ session }) {
       <div className="tab-panel">
         {tab === "script" && detail.script && <ScriptView script={detail.script} onShare={() => setShareOpen(true)} />}
         {tab === "quiz" && detail.quiz && (
-          <QuizView quiz={detail.quiz} onCheck={(answers) => api.checkQuiz(session.id, answers)} />
+          <OwnerQuiz sessionId={session.id} quiz={detail.quiz} onShare={() => setShareOpen(true)} />
         )}
         {tab === "video" && <VideoView />}
-        {tab === "chat" && (
-          <ChatView
-            sessionId={session.id}
-            suggestions={detail.script?.questions?.length ? detail.script.questions : DEFAULT_SUGGESTIONS}
-          />
-        )}
+        {tab === "chat" && <ChatView sessionId={session.id} script={detail.script} />}
         {tab === "transcript" && detail.transcript && <TranscriptView transcript={detail.transcript} />}
+        {tab === "feedback" && <FeedbackResults sessionId={session.id} onShare={() => setShareOpen(true)} />}
+        {tab === "analysis" && <AnalysisView sessionId={session.id} />}
       </div>
 
       {shareOpen && <ShareModal sessionId={session.id} onClose={() => setShareOpen(false)} />}
@@ -91,32 +95,56 @@ export default function Results({ session }) {
   );
 }
 
+// The owner's quiz: how listeners answered (first attempts), or try it yourself.
+function OwnerQuiz({ sessionId, quiz, onShare }) {
+  const [mode, setMode] = useState("results");
+  return (
+    <div className="owner-quiz">
+      <div className="segmented" role="group" aria-label="Quiz view">
+        <button className={"segment" + (mode === "results" ? " active" : "")} aria-pressed={mode === "results"} onClick={() => setMode("results")}>
+          <Icon name="chart" size={14} /> Listener results
+        </button>
+        <button className={"segment" + (mode === "try" ? " active" : "")} aria-pressed={mode === "try"} onClick={() => setMode("try")}>
+          <Icon name="quiz" size={14} /> Try it yourself
+        </button>
+      </div>
+      {mode === "results" ? (
+        <QuizResults sessionId={sessionId} onShare={onShare} />
+      ) : (
+        <QuizView quiz={quiz} onCheck={(answers) => api.checkQuiz(sessionId, answers)} />
+      )}
+    </div>
+  );
+}
+
 // ---- Share Modal ----
 
 const SHARE_TAB_OPTIONS = [
-  { id: "script", label: "Script & Zusammenfassung", icon: "script" },
+  { id: "script", label: "Script & summary", icon: "script" },
   { id: "quiz", label: "Quiz", icon: "quiz" },
-  { id: "transcript", label: "Transkript", icon: "transcript" },
-  { id: "feedback", label: "Feedback-Formular", icon: "spark" },
+  // The chatbot quotes the lecture, so sharing it reveals content even without the transcript.
+  { id: "chat", label: "Chatbot", icon: "chat", hint: "answers from the transcript, even if that isn't shared" },
+  { id: "transcript", label: "Transcript", icon: "transcript" },
+  { id: "feedback", label: "Feedback form", icon: "star" },
 ];
 const EXPIRY_OPTIONS = [
-  { days: 7, label: "7 Tage" },
-  { days: 30, label: "30 Tage" },
-  { days: 90, label: "90 Tage" },
-  { days: null, label: "Unbegrenzt" },
+  { days: 7, label: "7 days" },
+  { days: 30, label: "30 days" },
+  { days: 90, label: "90 days" },
+  { days: null, label: "Unlimited" },
 ];
-const TAB_LABELS = { script: "Script", quiz: "Quiz", transcript: "Transkript", feedback: "Feedback" };
+const TAB_LABELS = { script: "Script", quiz: "Quiz", chat: "Chatbot", transcript: "Transcript", feedback: "Feedback" };
 
 function shareUrl(token) {
   return `${window.location.origin}/share/${token}`;
 }
 
 function ShareModal({ sessionId, onClose }) {
-  const [selected, setSelected] = useState(["script", "quiz", "transcript"]);
+  const [selected, setSelected] = useState(SHARE_TAB_OPTIONS.map((opt) => opt.id));
   const [expiry, setExpiry] = useState(30);
   const [links, setLinks] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [copiedId, setCopiedId] = useState(null);
+  const [copiedId, showCopied] = useTransient();
   const [qrId, setQrId] = useState(null);
   const [error, setError] = useState(null);
 
@@ -142,10 +170,7 @@ function ShareModal({ sessionId, onClose }) {
     setSelected((prev) => (prev.includes(tabId) ? prev.filter((x) => x !== tabId) : [...prev, tabId]));
 
   const copy = async (link) => {
-    if (await copyToClipboard(shareUrl(link.token))) {
-      setCopiedId(link.id);
-      setTimeout(() => setCopiedId(null), 2000);
-    }
+    if (await copyToClipboard(shareUrl(link.token))) showCopied(link.id);
   };
 
   const create = async () => {
@@ -183,14 +208,14 @@ function ShareModal({ sessionId, onClose }) {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="modal-head">
-            <h2 id="share-title">Mit Teilnehmern teilen</h2>
-            <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Schließen">
+            <h2 id="share-title">Share with participants</h2>
+            <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close">
               <Icon name="close" size={16} />
             </button>
           </div>
           <p className="modal-sub">
-            Wähle aus, welche Inhalte die Teilnehmer sehen dürfen. Sie brauchen keinen Account — nur den Link. Du
-            kannst Links jederzeit widerrufen.
+            Choose what participants can see. They don&apos;t need an account — just the link. You can revoke
+            links at any time.
           </p>
 
           <div className="share-tab-list">
@@ -199,6 +224,7 @@ function ShareModal({ sessionId, onClose }) {
                 <input type="checkbox" checked={selected.includes(opt.id)} onChange={() => toggle(opt.id)} />
                 <Icon name={opt.icon} size={16} />
                 <span>{opt.label}</span>
+                {opt.hint && <span className="share-tab-hint">{opt.hint}</span>}
                 <span className={"share-check" + (selected.includes(opt.id) ? " on" : "")}>
                   <Icon name="check" size={13} />
                 </span>
@@ -208,7 +234,7 @@ function ShareModal({ sessionId, onClose }) {
 
           <div className="share-url-row">
             <label className="share-expiry">
-              <span>Gültig</span>
+              <span>Valid for</span>
               <select
                 className="field-input"
                 value={expiry ?? "never"}
@@ -222,37 +248,37 @@ function ShareModal({ sessionId, onClose }) {
               </select>
             </label>
             <button className="btn btn-primary btn-sm" onClick={create} disabled={selected.length === 0 || busy}>
-              <Icon name="link" size={15} /> Link erstellen & kopieren
+              <Icon name="link" size={15} /> Create & copy link
             </button>
           </div>
-          {selected.length === 0 && <p className="share-warn">Bitte wähle mindestens einen Inhalt aus.</p>}
+          {selected.length === 0 && <p className="share-warn">Select at least one section to share.</p>}
           {error && <p className="share-warn">{error}</p>}
 
           <div className="share-links">
-            <div className="side-label">Aktive Links</div>
+            <div className="side-label">Active links</div>
             {links === null && <span className="proc-spinner" />}
-            {links?.length === 0 && <p className="share-empty">Noch keine Links erstellt.</p>}
+            {links?.length === 0 && <p className="share-empty">No links created yet.</p>}
             {links?.map((link) => (
               <div className="share-link" key={link.id}>
                 <div className="share-link-info">
                   <span className="share-link-tabs">{link.tabs.map((t) => TAB_LABELS[t] ?? t).join(" · ")}</span>
                   <span className="share-link-meta">
-                    erstellt {formatDate(link.created_at, "de-DE")} ·{" "}
-                    {link.expires_at ? `gültig bis ${formatDate(link.expires_at, "de-DE")}` : "unbegrenzt gültig"}
+                    created {formatDate(link.created_at)} ·{" "}
+                    {link.expires_at ? `valid until ${formatDate(link.expires_at)}` : "never expires"}
                   </span>
                 </div>
                 <button className="btn btn-ghost btn-sm" onClick={() => copy(link)}>
                   <Icon name={copiedId === link.id ? "check" : "copy"} size={14} />
-                  {copiedId === link.id ? "Kopiert!" : "Kopieren"}
+                  {copiedId === link.id ? "Copied!" : "Copy"}
                 </button>
                 <button
                   className={"btn btn-ghost btn-sm" + (qrId === link.id ? " active" : "")}
                   onClick={() => setQrId((prev) => (prev === link.id ? null : link.id))}
-                  title="QR-Code anzeigen"
+                  title="Show QR code"
                 >
                   <Icon name="qr" size={14} /> QR
                 </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => revoke(link)} title="Link widerrufen">
+                <button className="btn btn-ghost btn-sm" onClick={() => revoke(link)} title="Revoke link" aria-label="Revoke link">
                   <Icon name="trash" size={14} />
                 </button>
               </div>
@@ -272,27 +298,18 @@ function ShareModal({ sessionId, onClose }) {
 }
 
 function QrPopup({ url, onClose }) {
-  const [svg, setSvg] = useState(null);
-
-  useEffect(() => {
-    QRCode.toString(url, { type: "svg", margin: 1, width: 260, color: { dark: "#0f1117", light: "#ffffff" } })
-      .then(setSvg)
-      .catch(() => setSvg(""));
-  }, [url]);
-
   return createPortal(
     <div className="qr-modal-backdrop" onClick={onClose}>
       <div className="qr-modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="qr-popup-head">
-          <span>QR-Code</span>
-          <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Schließen">
+          <span>QR code</span>
+          <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close">
             <Icon name="close" size={14} />
           </button>
         </div>
-        {svg
-          ? <div className="qr-image" dangerouslySetInnerHTML={{ __html: svg }} />
-          : <span className="proc-spinner" />
-        }
+        <div className="qr-image">
+          <QrCode value={url} label="QR code for the participant link" />
+        </div>
         <p className="qr-url">{url}</p>
       </div>
     </div>,
@@ -301,17 +318,14 @@ function QrPopup({ url, onClose }) {
 }
 
 export function ScriptView({ script, onShare }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, showCopied] = useTransient();
 
   const handleCopy = async () => {
     const lines = script.takeaways.map(
       (t) => `• ${t.text}${t.at_seconds != null ? ` (${formatTimestamp(t.at_seconds)})` : ""}`,
     );
     const text = [script.title, "", script.summary, "", ...script.overview, "", "Key takeaways:", ...lines].join("\n");
-    if (await copyToClipboard(text)) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    if (await copyToClipboard(text)) showCopied();
   };
 
   return (
@@ -448,6 +462,11 @@ export function QuizView({ quiz, onCheck }) {
         );
       })}
 
+      {result?.counted && (
+        <p className="quiz-counted">
+          <Icon name="check" size={13} /> Your first attempt was saved anonymously for the trainer&apos;s statistics.
+        </p>
+      )}
       {error && (
         <div className="banner error" role="alert">
           <Icon name="alert" size={16} /> <span>{error}</span>
@@ -541,14 +560,11 @@ export function VideoView() {
 }
 
 export function TranscriptView({ transcript }) {
-  const [exported, setExported] = useState(false);
+  const [exported, showExported] = useTransient();
 
   const handleExport = async () => {
     const text = transcript.map((l) => `[${formatTimestamp(l.start)}] ${l.speaker}: ${l.text}`).join("\n");
-    if (await copyToClipboard(text)) {
-      setExported(true);
-      setTimeout(() => setExported(false), 2000);
-    }
+    if (await copyToClipboard(text)) showExported();
   };
 
   return (
@@ -579,11 +595,53 @@ export function TranscriptView({ transcript }) {
   );
 }
 
-// ---- Chat (trainer-only; not offered to participants) ----
+// ---- Chat ----
 
-function ChatView({ sessionId, suggestions }) {
+function chatSuggestions(script) {
+  return script?.questions?.length ? script.questions : DEFAULT_SUGGESTIONS;
+}
+
+// The owner's conversation is stored on the server and reloaded with the tab.
+function ChatView({ sessionId, script }) {
+  const load = useCallback(() => api.chatHistory(sessionId), [sessionId]);
+  const ask = useCallback((question) => api.askChat(sessionId, question), [sessionId]);
+  return <Chat load={load} ask={ask} suggestions={chatSuggestions(script)} />;
+}
+
+// Listeners' conversations are never stored on the server: the page keeps them and sends
+// the latest turns along with each question (the server accepts up to 6).
+const SHARED_CHAT_TURNS = 6;
+
+export function SharedChatView({ token, script }) {
+  const replies = useRef(0);
+  const ask = useCallback(
+    async (question, earlier) => {
+      const history = earlier.slice(-SHARED_CHAT_TURNS).map(({ role, content }) => ({ role, content }));
+      const reply = await api.askSharedChat(token, question, history);
+      replies.current += 1;
+      return {
+        id: `reply-${replies.current}`,
+        role: "assistant",
+        content: reply.answer,
+        source: reply.source,
+        cite_seconds: reply.cite_seconds,
+      };
+    },
+    [token],
+  );
+  return (
+    <Chat
+      ask={ask}
+      suggestions={chatSuggestions(script)}
+      note="Your questions aren't saved and the trainer can't see them. The conversation ends when you leave this page."
+    />
+  );
+}
+
+// `load` (optional) fetches earlier messages; `ask(question, earlier)` resolves to the reply.
+function Chat({ load, ask, suggestions, note }) {
   const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(load));
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState(null);
@@ -591,12 +649,12 @@ function ChatView({ sessionId, suggestions }) {
   const pendingIds = useRef(0);
 
   useEffect(() => {
-    api
-      .chatHistory(sessionId)
+    if (!load) return;
+    load()
       .then(setMessages)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [sessionId]);
+  }, [load]);
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight, behavior: "smooth" });
@@ -607,12 +665,13 @@ function ChatView({ sessionId, suggestions }) {
     if (!question || thinking) return;
     pendingIds.current += 1;
     const pending = { id: `pending-${pendingIds.current}`, role: "user", content: question };
+    const earlier = messages;
     setMessages((m) => [...m, pending]);
     setInput("");
     setError(null);
     setThinking(true);
     try {
-      const reply = await api.askChat(sessionId, question);
+      const reply = await ask(question, earlier);
       setMessages((m) => [...m, reply]);
     } catch (err) {
       setMessages((m) => m.filter((x) => x !== pending));
@@ -698,6 +757,7 @@ function ChatView({ sessionId, suggestions }) {
           </button>
         </form>
       </div>
+      {note && <p className="chat-note">{note}</p>}
     </div>
   );
 }

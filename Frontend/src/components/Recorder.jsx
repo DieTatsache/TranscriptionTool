@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import Icon from "../Icon.jsx";
 import { api } from "../api.js";
 import { formatDuration } from "../format.js";
+import { audioDuration } from "../media.js";
+import { planAudioMinutes } from "../plans.js";
 
 // Records with MediaRecorder (all modern browsers) or takes an existing audio file, then
 // uploads it for server-side transcription. Nothing is sent to third-party services.
@@ -21,7 +23,7 @@ function extensionFor(mime) {
   return "webm";
 }
 
-export default function Recorder({ meta, usage, onUploaded, onCancel }) {
+export default function Recorder({ meta, usage, onUploaded, onCancel, onChoosePlan }) {
   const [phase, setPhase] = useState("idle"); // idle | starting | recording | uploading
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -36,9 +38,12 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
   const abortRef = useRef(null);
   const uploadRef = useRef(null);
 
-  const maxSeconds = (meta?.max_audio_minutes ?? 180) * 60;
+  // The plan's limit (the free plan: 60 min), never above the server's.
+  const maxSeconds = planAudioMinutes(usage?.plan, meta) * 60;
   const maxMb = meta?.max_upload_mb ?? 200;
-  const outOfQuota = usage?.remaining_this_month === 0;
+  const planRequired = usage?.plan?.id === "none";
+  const outOfQuota = !planRequired && usage?.remaining_this_month === 0;
+  const blocked = planRequired || outOfQuota;
   const busy = phase !== "idle";
 
   // Release the microphone and cancel uploads when the view closes.
@@ -60,7 +65,7 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
     return () => clearInterval(timer);
   }, [phase, paused]);
 
-  // Stop at the server's maximum length instead of recording something unusable.
+  // Stop at the maximum length instead of recording something unusable.
   useEffect(() => {
     const recorder = recorderRef.current;
     if (phase === "recording" && seconds >= maxSeconds && recorder?.state !== "inactive") recorder?.stop();
@@ -76,9 +81,19 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [phase]);
 
+  const sizeProblem = (file) => (file.size > maxMb * 1024 * 1024 ? `The file is larger than ${maxMb} MB.` : null);
+
+  // Checked before uploading, so a too-long file doesn't use up a session of the quota.
+  const durationProblem = async (file) => {
+    const duration = await audioDuration(file);
+    if (duration == null || duration <= maxSeconds + 1) return null;
+    return `This recording is ${formatDuration(duration)} long. Your plan allows recordings of up to ${formatDuration(maxSeconds)}.`;
+  };
+
   const upload = async (file) => {
-    if (file.size > maxMb * 1024 * 1024) {
-      setError(`The file is larger than ${maxMb} MB.`);
+    const problem = sizeProblem(file);
+    if (problem) {
+      setError(problem);
       return;
     }
     const controller = new AbortController();
@@ -178,10 +193,16 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
     onCancel();
   };
 
-  const onFileChosen = (event) => {
+  const onFileChosen = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (file) upload(file);
+    if (!file) return;
+    const problem = sizeProblem(file) ?? (await durationProblem(file));
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    upload(file);
   };
 
   const downloadFailed = () => {
@@ -234,7 +255,7 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
               <button className="btn btn-ghost" onClick={onCancel}>
                 Cancel
               </button>
-              <button className="btn-rec-start" onClick={start} disabled={outOfQuota}>
+              <button className="btn-rec-start" onClick={start} disabled={blocked}>
                 <Icon name="mic" size={20} /> Start recording
               </button>
             </div>
@@ -266,6 +287,15 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
           </>
         )}
 
+        {planRequired && phase === "idle" && (
+          <div className="banner warn">
+            <Icon name="alert" size={16} />
+            <span>Choose a plan to record and upload sessions.</span>
+            <button className="btn btn-primary btn-sm" onClick={onChoosePlan}>
+              Choose a plan
+            </button>
+          </div>
+        )}
         {outOfQuota && phase === "idle" && (
           <div className="banner warn">
             <Icon name="alert" size={16} />
@@ -295,8 +325,8 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
           <Icon name="upload" size={16} /> Upload a recording instead
         </div>
         <div className="rec-feed-body">
-          <label className={"dropzone" + (busy || outOfQuota ? " disabled" : "")}>
-            <input type="file" accept={ACCEPT} onChange={onFileChosen} disabled={busy || outOfQuota} hidden />
+          <label className={"dropzone" + (busy || blocked ? " disabled" : "")}>
+            <input type="file" accept={ACCEPT} onChange={onFileChosen} disabled={busy || blocked} hidden />
             <Icon name="upload" size={24} />
             <strong>Choose an audio file</strong>
             <span>
@@ -328,6 +358,8 @@ function uploadErrorMessage(err) {
       return "The recording is empty or too short.";
     case "rate_limited":
       return "Too many uploads in a short time. Please wait a moment and try again.";
+    case "plan_required":
+      return "Choose a plan to upload recordings.";
     default:
       return err.message || "The upload failed.";
   }

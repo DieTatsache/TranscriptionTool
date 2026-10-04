@@ -2,18 +2,26 @@
 
 Every inbound string has a maximum length, and user-provided text is stripped of control
 and bidi-override characters (log/UI spoofing). Quiz answers only appear in grading
-results, never in the models used to display a quiz.
+results and in the owner's statistics, never in the models used to display a quiz.
 """
 
 import re
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
 from sonora.ai.text import LANGUAGE_NAMES
-from sonora.models import ActivityType, ChatRole, ChatSource, SessionStatus, ShareTab
+from sonora.feedback import COMMENT_MAX_LENGTH, FeedbackQuestion
+from sonora.models import (
+    ActivityType,
+    ChatRole,
+    ChatSource,
+    PaymentStatus,
+    SessionStatus,
+    ShareTab,
+)
 
 _BIDI_OVERRIDES = dict.fromkeys(
     [*range(0x202A, 0x202F), *range(0x2066, 0x206A)], None
@@ -54,6 +62,9 @@ ChatText = Annotated[
     str, StringConstraints(max_length=1000), AfterValidator(_multi_line), AfterValidator(_required)
 ]
 Language = Annotated[str | None, AfterValidator(_known_language)]
+Comment = Annotated[
+    str, StringConstraints(max_length=COMMENT_MAX_LENGTH), AfterValidator(_multi_line)
+]
 
 
 class _Out(BaseModel):
@@ -67,7 +78,6 @@ class RegisterRequest(BaseModel):
     name: Name
     email: Email
     password: Password
-    plan: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -115,6 +125,9 @@ class PlanOut(_Out):
     name: str
     monthly_price_cents: int
     monthly_session_limit: int | None
+    # Longest recording of this plan; None = the server-wide max_audio_minutes.
+    max_audio_minutes: int | None
+    purchasable: bool
 
 
 class UsageOut(BaseModel):
@@ -134,6 +147,36 @@ class ActivityOut(_Out):
     type: ActivityType
     detail: str
     created_at: datetime
+
+
+# --- Billing -----------------------------------------------------------------------------
+
+
+class CheckoutRequest(BaseModel):
+    plan: Annotated[str, StringConstraints(min_length=1, max_length=20)]
+    # One-time token from the payment provider's card form; card details never reach the API.
+    # Not needed for the free plan.
+    payment_token: (
+        Annotated[str, StringConstraints(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$")]
+        | None
+    ) = None
+
+
+class PaymentOut(_Out):
+    id: uuid.UUID
+    plan: str
+    amount_cents: int
+    currency: str
+    status: PaymentStatus
+    card_brand: str | None
+    card_last4: str | None
+    failure_code: str | None
+    created_at: datetime
+
+
+class CheckoutOut(BaseModel):
+    user: UserOut
+    payment: PaymentOut | None  # None when switching to the free plan
 
 
 # --- Sessions ----------------------------------------------------------------------------
@@ -198,6 +241,114 @@ class QuizResultOut(_Out):
     score: int
     total: int
     results: list[QuestionResultOut]
+    # True when this was a listener's first attempt and went into the owner's statistics.
+    counted: bool = False
+
+
+class QuizQuestionStatsOut(_Out):
+    question: str
+    options: list[str]
+    correct_option: int
+    option_counts: list[int]
+    answered: int
+
+
+class QuizStatsOut(_Out):
+    attempts: int
+    total: int
+    average_score: float | None
+    score_distribution: list[int]
+    questions: list[QuizQuestionStatsOut]
+
+
+# --- Lecture analysis --------------------------------------------------------------------
+
+
+class ScoreOut(BaseModel):
+    score: int
+    assessment: str
+    tip: str
+
+
+class AnalysisScores(BaseModel):
+    content: ScoreOut
+    rhetoric: ScoreOut
+    structure: ScoreOut
+
+
+class TopicOut(BaseModel):
+    title: str
+    start_seconds: int
+    end_seconds: int
+    duration_seconds: int
+
+
+class AnalysisMetrics(BaseModel):
+    words: int
+    words_per_minute: int | None
+
+
+class AnalysisOut(BaseModel):
+    # "none": never requested (sessions from before the feature).
+    status: Literal["none", "queued", "running", "ready", "failed"]
+    error_message: str | None = None
+    model: str | None = None
+    completed_at: datetime | None = None
+    scores: AnalysisScores | None = None
+    topics: list[TopicOut] | None = None
+    metrics: AnalysisMetrics | None = None
+
+
+# --- Listener feedback -------------------------------------------------------------------
+
+
+class FeedbackQuestionOut(_Out):
+    id: str
+    type: Literal["stars", "scale", "choice", "text"]
+    label: str
+    options: list[str]
+    low: str | None
+    high: str | None
+    placeholder: str | None
+    max_length: int | None
+    required: bool
+
+    @classmethod
+    def of(cls, question: FeedbackQuestion) -> "FeedbackQuestionOut":
+        return cls.model_validate(question)
+
+
+class FeedbackFormOut(BaseModel):
+    version: int
+    questions: list[FeedbackQuestionOut]
+
+
+class FeedbackSubmit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Question id -> index of the chosen option.
+    ratings: dict[
+        Annotated[str, StringConstraints(max_length=32)], Annotated[int, Field(ge=0, le=9)]
+    ] = Field(max_length=10)
+    comment: Comment | None = None
+
+
+class FeedbackQuestionStatsOut(FeedbackQuestionOut):
+    counts: list[int]
+    answered: int
+    average: float | None
+
+
+class FeedbackSummaryOut(BaseModel):
+    responses: int
+    comments: int
+    questions: list[FeedbackQuestionStatsOut]
+
+
+class FeedbackCommentOut(_Out):
+    id: uuid.UUID
+    comment: str
+    created_at: datetime
 
 
 # --- Chat --------------------------------------------------------------------------------
@@ -205,6 +356,27 @@ class QuizResultOut(_Out):
 
 class ChatAsk(BaseModel):
     message: ChatText
+
+
+class ChatTurn(BaseModel):
+    """One earlier message of a listener's conversation, kept by their browser."""
+
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["user", "assistant"]
+    content: Annotated[str, StringConstraints(max_length=2000), AfterValidator(_multi_line)]
+
+
+class PublicChatAsk(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    message: ChatText
+    # Listener conversations are never stored: the browser sends the recent turns along.
+    history: list[ChatTurn] = Field(default_factory=list, max_length=6)
+
+
+class PublicChatAnswer(_Out):
+    answer: str
+    source: ChatSource
+    cite_seconds: int | None
 
 
 class ChatMessageOut(_Out):
@@ -242,6 +414,11 @@ class PublicShare(BaseModel):
     script: Script | None = None
     quiz: list[QuizQuestion] | None = None
     transcript: list[TranscriptSegment] | None = None
+    feedback_form: FeedbackFormOut | None = None
+    # This browser already answered the feedback form.
+    feedback_submitted: bool = False
+    # The signed-in owner is looking at their own link (their input is never recorded).
+    viewer_is_owner: bool = False
 
 
 # --- Meta --------------------------------------------------------------------------------
@@ -260,3 +437,7 @@ class MetaOut(BaseModel):
     max_audio_minutes: int
     languages: list[LanguageOut]
     share_tabs: list[ShareTab]
+    # Plans users can choose: the free plan (if offered), then those sold in the checkout.
+    plans: list[PlanOut]
+    # "mock": simulated payments with test cards only.
+    billing_provider: str

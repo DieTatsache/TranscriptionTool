@@ -19,7 +19,7 @@ from sonora.main import create_app
 from sonora.transcription.fake import FakeTranscriber as DevFakeTranscriber
 from sonora.worker import __main__ as worker_main
 from sonora.worker.runner import Worker
-from tests.conftest import BASE_URL, make_settings, register, upload
+from tests.conftest import BASE_URL, grant_plan, make_settings, register, upload
 from tests.fakes import FakeLLM, FakeTranscriber
 
 
@@ -40,6 +40,7 @@ async def test_embedded_worker_processes_uploads(app: FastAPI) -> None:
         httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE_URL) as client,
     ):
         account = await register(client)
+        await grant_plan(app.state.services, account.user_id, "trainer")
         session_id = (await upload(account.client)).json()["id"]
         await wait_for_status(client, session_id, "ready")
 
@@ -61,6 +62,7 @@ async def test_shutdown_does_not_wait_for_a_busy_worker(
     ) as client:
         async with app.router.lifespan_context(app):
             account = await register(client)
+            await grant_plan(app.state.services, account.user_id, "trainer")
             session_id = (await upload(account.client)).json()["id"]
             await wait_for_status(client, session_id, "generating")
             started = time.monotonic()
