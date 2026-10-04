@@ -23,7 +23,7 @@ describe("QuizView", () => {
     render(<QuizView quiz={QUIZ} onCheck={onCheck} />);
 
     const check = screen.getByRole("button", { name: /check answers/i });
-    expect(check.disabled).toBe(true); // every question must be answered first
+    expect(check.disabled).toBe(true); 
     fireEvent.click(screen.getByRole("button", { name: /A request for information/ }));
     fireEvent.click(screen.getByRole("button", { name: /A minute/ }));
     expect(screen.queryByText("Said at the start.")).toBeNull();

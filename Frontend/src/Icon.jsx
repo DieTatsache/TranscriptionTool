@@ -1,4 +1,4 @@
-// Minimal inline SVG icon set — no external dependency.
+// Minimal inline SVG icon set
 const paths = {
   mic: "M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM5 10v1a7 7 0 0 0 14 0v-1M12 19v3",
   script:

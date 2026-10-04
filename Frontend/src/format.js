@@ -1,5 +1,4 @@
-// Display helpers. The API sends raw values (seconds, ISO timestamps); formatting
-// happens here so the UI stays consistent.
+// Formatting helpers => API sends raw values-> everything gets formatted here
 
 export const PROCESSING_STATUSES = ["queued", "transcribing", "generating"];
 
@@ -7,7 +6,7 @@ export function isProcessing(session) {
   return PROCESSING_STATUSES.includes(session?.status);
 }
 
-// 250 -> "04:10", 3880 -> "1:04:40"
+// seconds into right notation h:mm:ss
 export function formatTimestamp(seconds) {
   const total = Math.max(0, Math.floor(seconds ?? 0));
   const h = Math.floor(total / 3600);
@@ -18,7 +17,7 @@ export function formatTimestamp(seconds) {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-// 2520 -> "42 min", 4080 -> "1h 08m", 35 -> "35s"
+// seconds into right notation xmin, xh
 export function formatDuration(seconds) {
   if (seconds == null) return "–";
   const total = Math.round(seconds);
@@ -48,7 +47,7 @@ export function formatPrice(cents) {
   );
 }
 
-// Splits "**bold** text" into React-safe segments (no HTML injection possible).
+// Splits bold text into React elements
 export function boldSegments(text) {
   return (text ?? "").split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((part) =>
     part.startsWith("**") && part.endsWith("**") && part.length > 4
@@ -62,6 +61,6 @@ export async function copyToClipboard(text) {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    return false; // clipboard permission denied / insecure context
+    return false; // permission denied/insecure context
   }
 }

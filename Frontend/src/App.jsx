@@ -23,7 +23,7 @@ export default function App() {
 }
 
 function TrainerApp() {
-  const [view, setView] = useState("loading"); // loading | landing | login | app | profile
+  const [view, setView] = useState("loading"); // loading/landing/login/app/profile
   const [loginMode, setLoginMode] = useState("login");
   const [loginPlan, setLoginPlan] = useState(null);
   const [user, setUser] = useState(null);
@@ -106,7 +106,7 @@ function TrainerApp() {
 }
 
 function AppShell({ user, meta, onHome, onProfile }) {
-  const [sessions, setSessions] = useState(null); // null while loading
+  const [sessions, setSessions] = useState(null); 
   const [activeId, setActiveId] = useState(null);
   const [recording, setRecording] = useState(false);
   const [usage, setUsage] = useState(null);
@@ -146,7 +146,7 @@ function AppShell({ user, meta, onHome, onProfile }) {
     };
   }, []);
 
-  // Poll only while something is being processed.
+  // poll when min one session is being processed.
   const anyProcessing = sessions?.some(isProcessing) ?? false;
   useEffect(() => {
     if (!anyProcessing) return undefined;

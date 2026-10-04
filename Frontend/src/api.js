@@ -1,7 +1,4 @@
-// Client for the Sonora API. Always same-origin (Vite dev proxy / reverse proxy in
-// production), so no CORS is involved. The session lives in an HttpOnly cookie the
-// page cannot read; the CSRF token is kept in memory only and sent on every
-// state-changing request.
+//API running on same origin. Session is in HttpOnly Cookie and CSRF Token only in Memory
 
 const BASE = "/api/v1";
 const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -23,7 +20,7 @@ export function setCsrfToken(token) {
   csrfToken = token;
 }
 
-// Called when an authenticated request fails with 401 (expired or revoked session).
+// Function when authenticated request fails with 401
 export function onSessionExpired(handler) {
   sessionExpiredHandler = handler;
 }
@@ -71,7 +68,7 @@ function remember(auth) {
   return auth.user;
 }
 
-// Raw-body upload with progress (fetch cannot report upload progress).
+// XMLHttpRequest upload (cause fetch cannot report upload progress).
 function uploadRecording(file, { title, language, onProgress, signal } = {}) {
   return new Promise((resolve, reject) => {
     const params = new URLSearchParams();
@@ -92,7 +89,7 @@ function uploadRecording(file, { title, language, onProgress, signal } = {}) {
       try {
         data = JSON.parse(xhr.responseText);
       } catch {
-        // non-JSON error page from a proxy
+        // no JSON error page from a proxy
       }
       if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
       const error = toApiError(xhr.status, data);
@@ -107,15 +104,20 @@ function uploadRecording(file, { title, language, onProgress, signal } = {}) {
 }
 
 export const api = {
+  // Returns config the UI needs on startup (feature flags, upload limits, supported languages)
   meta: () => request("/meta"),
 
+  // Checks if current cookie session is valid
   me: async () => remember(await request("/auth/me", { authProbe: true })),
+  // Login and store the CSRF token for all future requests
   login: async (email, password) =>
     remember(await request("/auth/login", { method: "POST", body: { email, password }, authProbe: true })),
+  // Registers a new account, plan included
   register: async (name, email, password, plan) =>
     remember(
       await request("/auth/register", { method: "POST", body: { name, email, password, plan }, authProbe: true }),
     ),
+  // Clears the CSRF token
   logout: async () => {
     try {
       await request("/auth/logout", { method: "POST", authProbe: true });
@@ -123,17 +125,19 @@ export const api = {
       setCsrfToken(null);
     }
   },
-
+  // As name Says, updates Profile or password
   updateProfile: (changes) => request("/me", { method: "PATCH", body: changes }),
   changePassword: (currentPassword, newPassword) =>
     request("/me/password", {
       method: "POST",
       body: { current_password: currentPassword, new_password: newPassword },
     }),
+  // Also clears the CSRF token so no authenticated requests can be made afterwards.
   deleteAccount: async (password) => {
     await request("/me/delete", { method: "POST", body: { password } });
     setCsrfToken(null);
   },
+  // Returns plan, session count and how many sessions left
   usage: () => request("/me/usage"),
   stats: () => request("/me/stats"),
   activity: (limit = 10) => request(`/me/activity?limit=${limit}`),
@@ -142,7 +146,9 @@ export const api = {
   uploadRecording,
   getSession: (sessionId, signal) => request(`/sessions/${id(sessionId)}`, { signal }),
   deleteSession: (sessionId) => request(`/sessions/${id(sessionId)}`, { method: "DELETE" }),
+  // requeues the session for processing
   retrySession: (sessionId) => request(`/sessions/${id(sessionId)}/retry`, { method: "POST" }),
+  // Sends the users answers to server for grading
   checkQuiz: (sessionId, answers) =>
     request(`/sessions/${id(sessionId)}/quiz/check`, { method: "POST", body: { answers } }),
 
@@ -150,6 +156,7 @@ export const api = {
   askChat: (sessionId, message) =>
     request(`/sessions/${id(sessionId)}/chat`, { method: "POST", body: { message } }),
 
+  // Creates scoped share links
   listShares: (sessionId) => request(`/sessions/${id(sessionId)}/shares`),
   createShare: (sessionId, tabs, expiresInDays) =>
     request(`/sessions/${id(sessionId)}/shares`, {
@@ -159,6 +166,7 @@ export const api = {
   revokeShare: (sessionId, shareId) =>
     request(`/sessions/${id(sessionId)}/shares/${id(shareId)}`, { method: "DELETE" }),
 
+  // Public endpoints => no auth cookie needed
   publicShare: (token) => request(`/public/shares/${id(token)}`, { authProbe: true }),
   checkSharedQuiz: (token, answers) =>
     request(`/public/shares/${id(token)}/quiz/check`, { method: "POST", body: { answers }, authProbe: true }),

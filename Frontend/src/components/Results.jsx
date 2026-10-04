@@ -3,17 +3,15 @@ import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import Icon from "../Icon.jsx";
 import { api } from "../api.js";
-import { FEATURES } from "../features.js";
 import { boldSegments, copyToClipboard, formatDate, formatTimestamp } from "../format.js";
 
 const TABS = [
   { id: "script", label: "Script", icon: "script" },
   { id: "quiz", label: "Quiz", icon: "quiz" },
-  { id: "video", label: "Video", icon: "video", feature: "video" },
   { id: "chat", label: "Chatbot", icon: "chat" },
   { id: "transcript", label: "Transcript", icon: "transcript" },
 ];
-const VISIBLE_TABS = TABS.filter((t) => !t.feature || FEATURES[t.feature]);
+const VISIBLE_TABS = TABS;
 
 const DEFAULT_SUGGESTIONS = [
   "Summarize the key points",
@@ -21,7 +19,7 @@ const DEFAULT_SUGGESTIONS = [
   "Explain the main idea in simple terms",
 ];
 
-// Keyed by session id in the parent, so all state resets when switching sessions.
+// State resets completely when switching sessions because the parent keys this by session id.
 export default function Results({ session }) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState(null);
@@ -76,7 +74,6 @@ export default function Results({ session }) {
         {tab === "quiz" && detail.quiz && (
           <QuizView quiz={detail.quiz} onCheck={(answers) => api.checkQuiz(session.id, answers)} />
         )}
-        {tab === "video" && <VideoView />}
         {tab === "chat" && (
           <ChatView
             sessionId={session.id}
@@ -359,7 +356,7 @@ export function ScriptView({ script, onShare }) {
   );
 }
 
-// Answers are graded by the server; the correct options are never sent beforehand.
+// Grading happens serverside
 export function QuizView({ quiz, onCheck }) {
   const [answers, setAnswers] = useState({});
   const [result, setResult] = useState(null);
@@ -468,78 +465,6 @@ export function QuizView({ quiz, onCheck }) {
   );
 }
 
-// Design mock of the planned recap video; only shown with VITE_FEATURE_VIDEO=true.
-export function VideoView() {
-  const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(34);
-
-  useEffect(() => {
-    if (!playing) return undefined;
-    const timer = setInterval(() => {
-      setProgress((p) => {
-        if (p >= 100) {
-          setPlaying(false);
-          return 100;
-        }
-        return p + 1;
-      });
-    }, 500);
-    return () => clearInterval(timer);
-  }, [playing]);
-
-  const totalSecs = 88;
-  const elapsed = Math.round((progress / 100) * totalSecs);
-  const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-
-  return (
-    <div className="video-view">
-      <div className="video-stage">
-        <div className="video-frame">
-          <div className="video-overlay">
-            <button className="video-play" onClick={() => setPlaying((p) => !p)} aria-label={playing ? "Pause" : "Play"}>
-              <Icon name={playing ? "pause" : "play"} size={26} />
-            </button>
-          </div>
-          <div className="video-captions">
-            &quot;An objection is not a rejection — it&apos;s a request for more information.&quot;
-          </div>
-          <div
-            className="video-progress"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              setProgress(Math.round(((e.clientX - rect.left) / rect.width) * 100));
-            }}
-          >
-            <div className="video-progress-fill" style={{ width: `${progress}%` }} />
-          </div>
-          <div className="video-time">
-            {fmt(elapsed)} / {fmt(totalSecs)}
-          </div>
-        </div>
-        <span className="video-badge">
-          <Icon name="spark" size={13} /> Beta
-        </span>
-      </div>
-
-      <div className="video-side">
-        <h2>90-second recap video</h2>
-        <p className="script-summary">
-          A short, shareable clip that strings together the session&apos;s key moments — captioned with the
-          trainer&apos;s own words.
-        </p>
-        <ul className="video-scenes">
-          {["Opening reframe", "The three-step sequence", '"Let silence do the work"', "Homework & close"].map((s, i) => (
-            <li key={i}>
-              <span className="scene-num">{i + 1}</span>
-              {s}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
 export function TranscriptView({ transcript }) {
   const [exported, setExported] = useState(false);
 
@@ -579,7 +504,7 @@ export function TranscriptView({ transcript }) {
   );
 }
 
-// ---- Chat (trainer-only; not offered to participants) ----
+// Chat (trainer only)
 
 function ChatView({ sessionId, suggestions }) {
   const [messages, setMessages] = useState([]);
@@ -718,7 +643,7 @@ function BotMessage({ source, cite, text }) {
   );
 }
 
-// Renders **bold** from model output as React elements — never as HTML.
+// Renders **bold** from model output as React elements
 function BoldText({ text }) {
   return boldSegments(text).map((segment, i) =>
     segment.bold ? <strong key={i}>{segment.text}</strong> : <span key={i}>{segment.text}</span>,

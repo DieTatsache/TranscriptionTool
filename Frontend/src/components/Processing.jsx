@@ -1,6 +1,6 @@
 import Icon from "../Icon.jsx";
 
-// Live progress of a session on the server (the parent polls its status).
+// progress of a session on the server
 const STEPS = [
   { status: "uploaded", label: "Recording uploaded", detail: "Stored for processing" },
   { status: "queued", label: "Waiting for a free worker", detail: "Usually starts within seconds" },

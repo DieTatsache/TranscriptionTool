@@ -45,7 +45,7 @@ export default function FeedbackView() {
 
   const submit = (e) => {
     e.preventDefault();
-    // Backend integration pending — for now just show the thank-you screen.
+    
     setSubmitted(true);
   };
 

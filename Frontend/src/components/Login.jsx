@@ -4,7 +4,7 @@ import { api } from "../api.js";
 import { DEMO_LOGIN } from "../features.js";
 import MockPayment from "./MockPayment.jsx";
 
-// Error messages for the API error codes this screen can receive.
+// Error messages for the API error codes
 function errorMessage(err, minLength) {
   switch (err.code) {
     case "invalid_credentials":
@@ -41,7 +41,7 @@ export default function Login({ mode, onModeChange, meta, notice, onLogin, plan:
   const minLength = meta?.password_min_length ?? 12;
   const canRegister = meta?.registration_enabled ?? true;
 
-  // Step 1 when registering: pick a plan first
+  // picking plan
   if (registering && !selectedPlan) {
     return <PlanPicker onPick={setSelectedPlan} onBack={() => onModeChange("login")} />;
   }

@@ -4,8 +4,7 @@ import { api } from "../api.js";
 import { QuizView, ScriptView, TranscriptView } from "./Results.jsx";
 import FeedbackView from "./FeedbackView.jsx";
 
-// Public page behind a share link. The server decides which tabs are visible; the token
-// in the URL cannot be edited to reveal more.
+// Public page behind a share link. Token in url for visibility, cannot be edited to see more
 const TAB_DEFS = [
   { id: "script", label: "Script", icon: "script" },
   { id: "quiz", label: "Quiz", icon: "quiz" },

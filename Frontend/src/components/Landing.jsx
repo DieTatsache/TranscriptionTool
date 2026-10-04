@@ -1,6 +1,6 @@
 import Icon from "../Icon.jsx";
 
-// Marketing landing page — the friendly entry point before the product.
+// Marketing landing page 
 export default function Landing({ onEnter }) {
   return (
     <div className="landing">

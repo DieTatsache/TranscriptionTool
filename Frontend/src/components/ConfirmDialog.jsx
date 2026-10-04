@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-// Modal confirmation for destructive actions. Escape or a backdrop click cancels.
+// Modal confirmation for destructive actions
 export default function ConfirmDialog({
   title,
   children,

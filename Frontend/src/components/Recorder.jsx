@@ -3,12 +3,11 @@ import Icon from "../Icon.jsx";
 import { api } from "../api.js";
 import { formatDuration } from "../format.js";
 
-// Records with MediaRecorder (all modern browsers) or takes an existing audio file, then
-// uploads it for server-side transcription. Nothing is sent to third-party services.
+// Records audio with MediaRecorder or takes existing file => transcription
 
 const MIME_TYPES = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4", "audio/webm"];
 const ACCEPT = "audio/*,.webm,.ogg,.oga,.opus,.mp3,.m4a,.mp4,.wav,.flac,.aac";
-const BITRATE = 64000; // plenty for speech; ~29 MB per hour
+const BITRATE = 64000; 
 
 function pickMimeType() {
   if (typeof MediaRecorder === "undefined") return null;
@@ -22,14 +21,14 @@ function extensionFor(mime) {
 }
 
 export default function Recorder({ meta, usage, onUploaded, onCancel }) {
-  const [phase, setPhase] = useState("idle"); // idle | starting | recording | uploading
+  const [phase, setPhase] = useState("idle"); // idle/starting/recording/u ploading
   const [paused, setPaused] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [stream, setStream] = useState(null);
   const [language, setLanguage] = useState("");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
-  const [failedFile, setFailedFile] = useState(null); // kept so a lecture is never lost
+  const [failedFile, setFailedFile] = useState(null); 
 
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -41,7 +40,7 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
   const outOfQuota = usage?.remaining_this_month === 0;
   const busy = phase !== "idle";
 
-  // Release the microphone and cancel uploads when the view closes.
+  // releases the microphone and cancels running upload when view closes
   useEffect(
     () => () => {
       const recorder = recorderRef.current;
@@ -60,7 +59,7 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
     return () => clearInterval(timer);
   }, [phase, paused]);
 
-  // Stop at the server's maximum length instead of recording something unusable.
+  // Stop recording at server limit => no upload of something the backend would reject
   useEffect(() => {
     const recorder = recorderRef.current;
     if (phase === "recording" && seconds >= maxSeconds && recorder?.state !== "inactive") recorder?.stop();
@@ -102,7 +101,7 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
     }
   };
 
-  // MediaRecorder's onstop fires later; it always calls the latest upload function.
+  // onstop fires async => always keep a ref to the latest upload function
   useEffect(() => {
     uploadRef.current = upload;
   });
@@ -137,7 +136,7 @@ export default function Recorder({ meta, usage, onUploaded, onCancel }) {
         uploadRef.current(new File([blob], name, { type }));
       };
       recorderRef.current = recorder;
-      recorder.start(1000); // regular chunks: nothing big is lost if the tab crashes mid-way
+      recorder.start(1000);
       setStream(media);
       setSeconds(0);
       setPaused(false);
@@ -333,7 +332,7 @@ function uploadErrorMessage(err) {
   }
 }
 
-// Live level meter fed by the microphone stream (AnalyserNode).
+// Live volume meter driven by AnalyserNode
 function Waveform({ active, stream }) {
   const [bars, setBars] = useState(() => Array.from({ length: 48 }, () => 0.15));
 
