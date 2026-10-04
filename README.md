@@ -2,7 +2,7 @@
 
 **"From what was said."**
 Sonora turns recordings of lectures, trainings and coaching sessions into a recap script, an
-interactive quiz, a chat you can ask about the session, and a transcript — shareable with
+interactive quiz, a chat you can ask about the session, and a transcript that is shareable with
 listeners via link or QR code, no account required. Listeners can give anonymous feedback,
 and the lecturer sees how the quiz went and gets an analysis of their own lecture.
 
@@ -56,7 +56,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | API | Python 3.13, FastAPI, Pydantic v2, SQLAlchemy 2 (async), Alembic |
 | Database | PostgreSQL 17 (Docker) · SQLite (local development) |
 | Speech-to-text | faster-whisper (CTranslate2), GPU or CPU |
-| LLM | Ollama — `qwen3.5:9b` (Qwen3.5-9B) by default; prompts and sampling in [docs/LLM.md](docs/LLM.md) |
+| LLM | Ollama: `qwen3.5:9b` (Qwen3.5-9B) by default; prompts and sampling in [docs/LLM.md](docs/LLM.md) |
 | Rate limiting | `limits` with Valkey (Docker) or in-memory (local) |
 | Delivery | Docker Compose, nginx, optional Caddy for automatic HTTPS |
 
@@ -72,6 +72,15 @@ TranscriptionTool/
 ├── .env.example             # Docker Compose configuration template
 └── .github/workflows/ci.yml # Lint, type-check, tests, image builds
 ```
+
+## Quick start (production, Docker, prefer this one)
+
+```bash
+cp .env.example .env        # set PUBLIC_HOST, PUBLIC_ORIGIN, POSTGRES_PASSWORD, models
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.tls.yml up -d --build
+```
+
+Prerequisites, GPU sizing, TLS, backups and upgrades: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Quick start (local development, no Docker)
 
@@ -131,15 +140,6 @@ docker compose exec api python -m sonora.cli seed-feedback --link http://localho
 A session stores at most 5,000 feedback responses and 5,000 quiz attempts; the command stops
 adding feedback there.
 
-## Production (Docker)
-
-```bash
-cp .env.example .env        # set PUBLIC_HOST, PUBLIC_ORIGIN, POSTGRES_PASSWORD, models
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.tls.yml up -d --build
-```
-
-Prerequisites, GPU sizing, TLS, backups and upgrades: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
-
 ## Tests and quality checks
 
 ```bash
@@ -176,4 +176,3 @@ never reach the server. The full model, known limitations and a production check
 | [docs/LLM.md](docs/LLM.md) | Model, prompts, sampling, measured decisions, switching models |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model, security controls, known gaps, production checklist |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker deployment, GPU, TLS, operations, troubleshooting |
-| [CHANGELOG.md](CHANGELOG.md) | What changed, release by release |

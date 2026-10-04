@@ -23,8 +23,7 @@ the worker and nginx, plus optional overrides for NVIDIA GPUs and automatic HTTP
 
 Measured on the small-GPU setup (8 GB RTX 2080, `qwen3.5:9b`, 16K context): recap and quiz
 of a 29-minute lecture took 95 s, the lecture analysis (topics + three score judgements)
-another 64 s. Other setups were not measured; models other than `qwen3.5:9b` were not
-evaluated for output quality (see [LLM.md](LLM.md)).
+another 64 s.
 
 Transcription needs about 0.3 GB RAM per hour of audio on top of the model.
 

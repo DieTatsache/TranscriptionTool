@@ -138,7 +138,7 @@ Every `POST`/`PATCH`/`DELETE` of a signed-in user must send it in the `X-CSRF-To
 | POST | `/public/shares/{token}/chat` | link holder with the participant cookie, or the owner (their chat limits) | Ask about the lecture: `{message, history}` (≤ 6 earlier `user`/`assistant` turns kept by the page; nothing is stored) → `{answer, source, cite_seconds}`. 5/min and 60/day per listener, 300/h per IP, 600/h per lecture; `503 assistant_busy` while 4 answers are being generated |
 
 All paths are prefixed with `/api/v1`. The OpenAPI schema is at `/api/v1/openapi.json`
-(development). Foreign or unknown ids return `404` — the API never reveals that another
+(development). Foreign or unknown ids return `404`, the API never reveals that another
 user's session exists.
 
 **Why a raw-body upload?** FastAPI parses multipart bodies *before* dependencies run, so a
